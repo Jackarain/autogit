@@ -93,7 +93,30 @@ int main(int argc, char** argv)
 
 	LOG_DBG << "Running...";
 
+	const auto gitcmd = "git -C " + git_repository + " ";
 
+	while (true)
+	{
+		auto cmd = gitcmd + "add -f .";
+		{
+			auto [result, ret] = run_command(cmd);
+			LOG_DBG << result;
+		}
+
+		cmd = gitcmd + "commit -m 'Commit by autogit'";
+		{
+			auto [result, ret] = run_command(cmd);
+			LOG_DBG << result;
+		}
+
+		cmd = gitcmd + "push";
+		{
+			auto [result, ret] = run_command(cmd);
+			LOG_DBG << result;
+		}
+
+		std::this_thread::sleep_for(std::chrono::seconds(time));
+	}
 
 	return EXIT_SUCCESS;
 }
