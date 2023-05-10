@@ -21,6 +21,10 @@ add_executable(autogit
 	${autogit_SRCS}
 	)
 
+target_link_libraries(autogit
+	Boost::asio
+)
+
 if (HAVE_IOCTL_SIOCGIFADDR)
 	target_compile_definitions(autogit PUBLIC HAVE_IOCTL_SIOCGIFADDR)
 endif()

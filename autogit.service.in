@@ -1,0 +1,14 @@
+[Unit]
+Description=Auto git Core Daemon
+After=network.target
+
+[Service]
+ExecStart=@CMAKE_INSTALL_PREFIX@/bin/autogit
+WorkingDirectory=/var/log/autogit
+
+LimitNOFILE=900000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
