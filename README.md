@@ -1,6 +1,6 @@
 # autogit
 
-##### 一个基于 c++20 实现的自动 git 提交并 push 服务，本项目主要用于解决本人在使用 linux 时，经常进行一些较为复杂的操作流程时（比如搭建 gitlab、配置 nextcloud 等复杂项目）便于使用 asciinema 自动记录整个流程，并自动提交到 git 仓库。
+##### 一个自动 git 提交并 push 的备份目录服务，本项目主要用于解决本人在使用 linux 时，经常进行一些较为复杂的操作流程时（比如搭建 gitlab、配置 nextcloud 等复杂项目）便于使用 asciinema 自动记录整个流程，并自动提交到 git 仓库。
 
 <br>
 <br>
