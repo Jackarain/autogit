@@ -58,16 +58,18 @@ int main(int argc, char** argv)
 {
 	std::string git_repository;
 	std::string log_directory;
+	std::string commit_message;
 	int time;
-	bool disable_logs = false;
+	bool disable_logs = true;
 
 	// 解析命令行.
 	po::options_description desc("Options");
 	desc.add_options()
 		("help,h", "Help message.")
 		("repository", po::value<std::string>(&git_repository)->value_name("repository"), "Git repository path")
-		("time", po::value<int>(&time)->default_value(false), "Wait time seconds until committing")
-		("disable_logs", po::value<bool>(&disable_logs)->default_value(false), "Disable logs")
+		("commit_message", po::value<std::string>(&commit_message)->default_value("Commit by autogit"), "Git commit message")
+		("time", po::value<int>(&time)->default_value(false), "Wait time seconds until committing.")
+		("disable_logs", po::value<bool>(&disable_logs)->default_value(true), "Disable logs.")
 		("logs_path", po::value<std::string>(&log_directory)->value_name(""), "Logs dirctory.")
 		;
 
@@ -104,24 +106,30 @@ int main(int argc, char** argv)
 
 	while (true)
 	{
+		// 强制添加仓库目录下所有文件，包括修改过以及添加的新文件
+		// 因为这种仓库肯定是需要保存所有文件的.
 		auto cmd = gitcmd + "add -f .";
 		{
 			auto [result, ret] = run_command(cmd);
 			LOG_DBG << result;
 		}
 
-		cmd = gitcmd + "commit -m 'Commit by autogit'";
+		// 提交到仓库, 这种仓库的 commit message 都是千遍一律
+		// 所以没有太多实际意义, 只为提交成功.
+		cmd = gitcmd + "commit -m '" + commit_message + "'";
 		{
 			auto [result, ret] = run_command(cmd);
 			LOG_DBG << result;
 		}
 
+		// 提交完成后自动 push 到远程仓库.
 		cmd = gitcmd + "push";
 		{
 			auto [result, ret] = run_command(cmd);
 			LOG_DBG << result;
 		}
 
+		// 再等下一个周期继续.
 		std::this_thread::sleep_for(std::chrono::seconds(time));
 	}
 
