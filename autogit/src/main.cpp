@@ -10,6 +10,7 @@
 //
 
 #include "autogit/logging.hpp"
+#include <signal.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -48,6 +49,10 @@ std::tuple<std::string, bool> run_command(const std::string& cmd) noexcept
 	return { result, exit_code == EXIT_SUCCESS ? true : false };
 }
 
+void signal_callback_handler(int signum)
+{
+	exit(signum);
+}
 
 int main(int argc, char** argv)
 {
@@ -90,6 +95,8 @@ int main(int argc, char** argv)
 	}
 
 	util::init_logging(log_directory);
+	signal(SIGINT, signal_callback_handler);
+	signal(SIGTERM, signal_callback_handler);
 
 	LOG_DBG << "Running...";
 
