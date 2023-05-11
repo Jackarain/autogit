@@ -332,6 +332,8 @@ int gitwork(git_repository* repo,
 		return EXIT_FAILURE;
 	}
 
+	LOG_DBG << "Successfully push to remote";
+
 	return EXIT_SUCCESS;
 }
 
