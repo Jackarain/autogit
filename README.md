@@ -9,7 +9,7 @@
 
 1. 创建 ~/.cache/asciinema 用于作为 git 仓库。
 2. 配置好仓库推送地址等，推送无需用户输入验证等便携于自动 git push。
-3. 将 asciinema 复制到 /usr/local/bin/asciinema, 然后在 .zshrc 尾部添加代码：
+3. 将 asciinema (注意本项目所带的 asciinema 是网上一个 rust 佬重写的版本，非常不稳定，推荐使用 asciinema 官方的 python 版本) 复制到 /usr/local/bin/asciinema, 然后在 .zshrc 尾部添加代码：
 ```
 ctime=$(date +%Y%m%d_%H%M%S)
 
