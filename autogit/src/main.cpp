@@ -69,6 +69,11 @@ void signal_callback_handler(int signum)
 	global_gitwork_thrd.interrupt();
 }
 
+int certificate_check_cb(git_cert *cert, int valid, const char *host, void *payload)
+{
+    return 1; // Always accept the certificate
+}
+
 int cred_acquire_cb(git_cred** cred,
 	const char* url,
 	const char* username_from_url,
@@ -309,6 +314,8 @@ int gitwork(git_repository* repo,
 
 	options.callbacks.credentials = cred_acquire_cb;
 	options.callbacks.payload = (void*)baseinfo.c_str();
+
+	options.callbacks.certificate_check = certificate_check_cb;
 
 	// 执行推送操作
 	const char* refspec = "refs/heads/master";
