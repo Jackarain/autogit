@@ -10,6 +10,8 @@ set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} -DENABLE_LOGGER -D
 
 file(GLOB autogit_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/autogit/logging.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/autogit/scoped_exit.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/autogit/strutil.hpp
 )
 
 file(GLOB autogit_SRCS
