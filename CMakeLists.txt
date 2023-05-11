@@ -243,6 +243,23 @@ endif(NOT MSVC)
 
 ################################################################################
 
+if (ENABLE_SYSTEM_OPENSSL)
+	find_package(OpenSSL)
+else()
+	set(OPENSSL_FOUND TRUE)
+	add_subdirectory(third_party/openssl)
+	if (NOT MSVC AND NOT APPLE)
+		if (NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang"))
+			set(CMAKE_SHARED_LINKER_FLAGS "-Wl,--exclude-libs,ALL ${CMAKE_SHARED_LINKER_FLAGS}")
+			set(CMAKE_MODULE_LINKER_FLAGS "-Wl,--exclude-libs,ALL ${CMAKE_MODULE_LINKER_FLAGS}")
+			set(CMAKE_EXE_LINKER_FLAGS "-Wl,--exclude-libs,ALL ${CMAKE_EXE_LINKER_FLAGS}")
+		endif()
+	endif()
+endif()
+include_directories(${OPENSSL_INCLUDE_DIR})
+
+################################################################################
+
 set(BUILD_ASIO_BEAST ON)
 
 if (ENABLE_BUILD_TESTS)
@@ -324,7 +341,7 @@ add_subdirectory(third_party/fmt)
 set(BUILD_SHARED_LIBS OFF)
 set(BUILD_TESTS OFF)
 set(USE_NSEC OFF)
-set(USE_HTTPS OFF)
+set(USE_HTTPS ON)
 set(SONAME OFF)
 set(USE_NTLMCLIENT OFF)
 set(USE_ICONV OFF)
@@ -350,6 +367,7 @@ link_libraries(
 		Boost::program_options
 
 		fmt
+		${OPENSSL_LIBRARIES}
 		${ZLIB_LIBRARIES}
 )
 

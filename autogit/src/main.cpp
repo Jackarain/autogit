@@ -62,35 +62,6 @@ namespace po = boost::program_options;
 
 //////////////////////////////////////////////////////////////////////////
 
-#ifdef _MSC_VER
-# define popen _popen
-# define pclose _pclose
-#endif // _MSC_VER
-
-std::tuple<std::string, bool> run_command(const std::string& cmd) noexcept
-{
-	auto pf = popen(cmd.c_str(), "r");
-	if (!pf)
-		return { "", false };
-
-	std::string result;
-	size_t total = 0;
-
-	while (!feof(pf))
-	{
-		result.resize(total + 1024);
-		auto nread = fread((char*)(result.data() + total), 1, 1024, pf);
-		if (nread <= 0)
-			break;
-		total += nread;
-	}
-	result.resize(total);
-
-	int exit_code = pclose(pf);
-	return { result, exit_code == EXIT_SUCCESS ? true : false };
-}
-
-
 boost::thread global_gitwork_thrd;
 
 void signal_callback_handler(int signum)
