@@ -9,19 +9,19 @@
 
 1. 创建 ~/.cache/asciinema 用于作为 git 仓库。
 2. 配置好仓库推送地址等，推送无需用户输入验证等便携于自动 git push。
-3. 将 asciinema (注意本项目所带的 asciinema 是网上一个 rust 佬重写的版本，非常不稳定，推荐使用 asciinema 官方的 python 版本) 复制到 /usr/local/bin/asciinema, 然后在 .zshrc 尾部添加代码：
+3. 在安装 asciinema后，配置 .zshrc 以便于打开 shell 时自动开始录制，在该文件尾部添加代码：
 ```
 ctime=$(date +%Y%m%d_%H%M%S)
 
 if [ -z "$recsession" ]; then
     export recsession=$$
     echo "Current time: $ctime, recsession: $recsession"
-    /usr/local/bin/asciinema record "/root/.cache/asciinema/$ctime-$recsession-ascii.cast"
+    /usr/bin/asciinema rec "/root/.cache/asciinema/$ctime-$recsession-ascii.cast"
 fi
 ```
 这样，则在打开 shell 时自动运行 asciinema，并将屏幕录制自动保存到 /root/.cache/asciinema/ 这个 git 仓库目录中。
 
-4. 将 autogit 同样复制到 /usr/local/bin/autogit，然后添加 autogit 的 systemd 服务：
+4. 将 autogit 复制到 /usr/local/bin/autogit，然后添加 autogit 的 systemd 服务：
 ```
 [Unit]
 Description=Git watch service
