@@ -301,10 +301,19 @@ endif()
 if (WIN32 OR NOT ENABLE_SYSTEM_ZLIB)
 	add_subdirectory(third_party/zlib EXCLUDE_FROM_ALL)
 	set(ZLIB_LIBRARIES zlibstatic)
-	set(ZLIB_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib ${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/contrib/minizip)
+	set(ZLIB_LIBRARY ${ZLIB_LIBRARIES})
+	set(ZLIB_INCLUDE_DIRS
+		${CMAKE_BINARY_DIR}/third_party/zlib
+		${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib
+		${CMAKE_CURRENT_SOURCE_DIR}/third_party/zlib/contrib/minizip
+	)
+	set(ZLIB_INCLUDE_DIR ${ZLIB_INCLUDE_DIRS})
+	set(ZLIB_FOUND ON)
 else()
 	find_package(ZLIB REQUIRED)
 endif()
+
+include_directories(${ZLIB_INCLUDE_DIRS})
 
 ################################################################################
 
@@ -312,10 +321,26 @@ add_subdirectory(third_party/fmt)
 
 ################################################################################
 
-include_directories(third_party
-	${ZLIB_INCLUDE_DIRS}
-)
+set(BUILD_SHARED_LIBS OFF)
+set(BUILD_TESTS OFF)
+set(USE_NSEC OFF)
+set(USE_HTTPS OFF)
+set(SONAME OFF)
+set(USE_NTLMCLIENT OFF)
+set(USE_ICONV OFF)
+set(USE_BUNDLED_ZLIB OFF)
 
+include_directories(${ZLIB_INCLUDE_DIR})
+
+add_subdirectory(third_party/libgit2 EXCLUDE_FROM_ALL)
+set(GIT2_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libgit2/include)
+set_target_properties(git2 PROPERTIES FOLDER "third_party/")
+
+################################################################################
+
+include_directories(
+	${GIT2_INCLUDE_DIRS}
+)
 
 ################################################################################
 

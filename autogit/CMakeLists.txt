@@ -23,6 +23,7 @@ add_executable(autogit
 
 target_link_libraries(autogit
 	Boost::asio
+	git2
 )
 
 if (HAVE_IOCTL_SIOCGIFADDR)
