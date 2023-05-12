@@ -107,7 +107,12 @@ int cred_acquire_cb(git_cred** cred,
 	if (allowed_types & GIT_CREDTYPE_SSH_KEY)
 	{
 		auto default_sshdir =
-			std::string(get_home_dir()) + "/.ssh/";
+			std::string(get_home_dir()) +
+#ifdef _MSC_VER
+			"\\.ssh\\";
+#else
+			"/.ssh/";
+#endif // _MSC_VER
 
 		auto public_key = default_sshdir +
 			(global_repo_publickey.empty() ?

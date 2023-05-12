@@ -1,4 +1,4 @@
-/* Copyright (c) 2004-2007 Sara Golemon <sarag@libssh2.org>
+﻿/* Copyright (c) 2004-2007 Sara Golemon <sarag@libssh2.org>
  * Copyright (c) 2009-2019 by Daniel Stenberg
  * Copyright (c) 2010  Simon Josefsson
  * All rights reserved.
@@ -447,7 +447,7 @@ _libssh2_debug(LIBSSH2_SESSION * session, int context, const char *format, ...)
     const char *contexttext = contexts[0];
     unsigned int contextindex;
 
-    if(!(session->showmask & context)) {
+    if(!!(session->showmask & context)) {
         /* no such output asked for */
         return;
     }
