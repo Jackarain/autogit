@@ -358,16 +358,9 @@ else()
 	set(BUILD_TESTING OFF)
 	set(LIBSSH2_FOUND ON)
 	add_subdirectory(third_party/libssh2)
-	add_library(ssh2 ALIAS libssh2)
-	add_library(Libssh2::libssh2 ALIAS libssh2)
 	set_target_properties(libssh2 PROPERTIES FOLDER "third_party")
 	set_target_properties(libssh2 PROPERTIES POSITION_INDEPENDENT_CODE ON)
 	set(LIBSSH2_LIBRARIES libssh2)
-	set(LIBSSH2_LIBRARY_DIRS
-		${CMAKE_BINARY_DIR}/third_party/libssh2/src/Debug
-		${CMAKE_BINARY_DIR}/third_party/libssh2/src/Release
-		${CMAKE_BINARY_DIR}/third_party/libssh2/src
-	)
 	set(LIBSSH2_INCLUDE_DIRS
 		${CMAKE_CURRENT_SOURCE_DIR}/third_party/libssh2/include
 		${CMAKE_BINARY_DIR}/third_party/libssh2/src
