@@ -382,8 +382,13 @@ set(SONAME OFF)
 set(USE_NTLMCLIENT OFF)
 set(USE_ICONV OFF)
 set(USE_BUNDLED_ZLIB OFF)
+set(GIT_SSH ON)
+
+add_definitions(-DGIT_SSH)
+add_definitions(-DGIT_HTTPS)
 
 include_directories(${ZLIB_INCLUDE_DIR})
+include_directories(${LIBSSH2_INCLUDE_DIRS})
 
 add_subdirectory(third_party/libgit2 EXCLUDE_FROM_ALL)
 set(GIT2_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libgit2/include)
