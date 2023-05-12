@@ -65,6 +65,8 @@ option(ENABLE_BUILD_WITH_LIBCXX		"Build with libc++" OFF)
 
 option(ENABLE_SYSTEM_ZLIB			"Build with system zlib support" OFF)
 option(ENABLE_SYSTEM_OPENSSL		"Build with system openssl support" OFF)
+option(ENABLE_SYSTEM_LIBSSH2		"Build with system libssh2 support" OFF)
+
 
 option(ENABLE_MOLD					"build using mold" OFF)
 option(ENABLE_LLD					"build using lld" OFF)
@@ -246,6 +248,7 @@ endif(NOT MSVC)
 if (ENABLE_SYSTEM_OPENSSL)
 	find_package(OpenSSL)
 else()
+	set(OPENSSL_FOUND TRUE)
 	set(OPENSSL_ROOT_DIR
 		${CMAKE_CURRENT_SOURCE_DIR}/third_party/openssl
 		${CMAKE_BINARY_DIR}/third_party/openssl/crypto/Debug
@@ -253,21 +256,19 @@ else()
 		${CMAKE_BINARY_DIR}/third_party/openssl/crypto/Release
 		${CMAKE_BINARY_DIR}/third_party/openssl/ssl/Release
 	)
+
 	add_subdirectory(third_party/openssl)
 	if (MSVC)
 		add_definitions(-DSIXTY_FOUR_BIT)
 	else()
-		add_definitions(-DDSIXTY_FOUR_BIT_LONG)
+		add_definitions(-DSIXTY_FOUR_BIT_LONG)
 	endif()
 	if (NOT MSVC AND NOT APPLE)
-		add_definitions(-DSIXTY_FOUR_BIT_LONG)
 		if (NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang"))
 			set(CMAKE_SHARED_LINKER_FLAGS "-Wl,--exclude-libs,ALL ${CMAKE_SHARED_LINKER_FLAGS}")
 			set(CMAKE_MODULE_LINKER_FLAGS "-Wl,--exclude-libs,ALL ${CMAKE_MODULE_LINKER_FLAGS}")
 			set(CMAKE_EXE_LINKER_FLAGS "-Wl,--exclude-libs,ALL ${CMAKE_EXE_LINKER_FLAGS}")
 		endif()
-	else()
-		add_definitions(-DSIXTY_FOUR_BIT)
 	endif()
 endif()
 include_directories(${OPENSSL_INCLUDE_DIR})
@@ -350,23 +351,28 @@ include_directories(${ZLIB_INCLUDE_DIRS})
 
 ################################################################################
 
-set(BUILD_EXAMPLES OFF)
-set(BUILD_TESTING OFF)
-set(LIBSSH2_FOUND ON)
-add_subdirectory(third_party/libssh2)
-add_library(ssh2 ALIAS libssh2)
-set_target_properties(libssh2 PROPERTIES FOLDER "third_party")
-set_target_properties(libssh2 PROPERTIES POSITION_INDEPENDENT_CODE ON)
-set(LIBSSH2_LIBRARIES libssh2)
-set(LIBSSH2_LIBRARY_DIRS
-	${CMAKE_BINARY_DIR}/third_party/libssh2/src/Debug
-	${CMAKE_BINARY_DIR}/third_party/libssh2/src/Release
-	${CMAKE_BINARY_DIR}/third_party/libssh2/src
+if (ENABLE_SYSTEM_LIBSSH2)
+	find_package(Libssh2 REQUIRED)
+else()
+	set(BUILD_EXAMPLES OFF)
+	set(BUILD_TESTING OFF)
+	set(LIBSSH2_FOUND ON)
+	add_subdirectory(third_party/libssh2)
+	add_library(ssh2 ALIAS libssh2)
+	add_library(Libssh2::libssh2 ALIAS libssh2)
+	set_target_properties(libssh2 PROPERTIES FOLDER "third_party")
+	set_target_properties(libssh2 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+	set(LIBSSH2_LIBRARIES libssh2)
+	set(LIBSSH2_LIBRARY_DIRS
+		${CMAKE_BINARY_DIR}/third_party/libssh2/src/Debug
+		${CMAKE_BINARY_DIR}/third_party/libssh2/src/Release
+		${CMAKE_BINARY_DIR}/third_party/libssh2/src
 	)
-set(LIBSSH2_INCLUDE_DIRS
-	${CMAKE_CURRENT_SOURCE_DIR}/third_party/libssh2/include
-	${CMAKE_BINARY_DIR}/third_party/libssh2/src
-)
+	set(LIBSSH2_INCLUDE_DIRS
+		${CMAKE_CURRENT_SOURCE_DIR}/third_party/libssh2/include
+		${CMAKE_BINARY_DIR}/third_party/libssh2/src
+	)
+endif()
 
 ################################################################################
 
