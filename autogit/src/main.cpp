@@ -81,12 +81,15 @@ void signal_callback_handler(int signum)
 	global_gitwork_thrd.interrupt();
 }
 
-int certificate_check_cb(git_cert *cert, int valid, const char *host, void *payload)
+int certificate_check_cb(git_cert *cert,
+	int valid,
+	const char *host,
+	void *payload)
 {
     return 1; // Always accept the certificate
 }
 
-char* get_home_dir(void)
+const char* get_home_dir(void)
 {
 #ifdef _WIN32
 	return getenv("USERPROFILE");
@@ -98,7 +101,8 @@ char* get_home_dir(void)
 int cred_acquire_cb(git_cred** cred,
 	const char* url,
 	const char* username_from_url,
-	unsigned int allowed_types, void* payload)
+	unsigned int allowed_types,
+	void* payload)
 {
 	if (allowed_types & GIT_CREDTYPE_SSH_KEY)
 	{
@@ -106,12 +110,16 @@ int cred_acquire_cb(git_cred** cred,
 			std::string(get_home_dir()) + "/.ssh/";
 
 		auto public_key = default_sshdir +
-			(global_repo_publickey.empty() ? "id_rsa.pub" : global_repo_publickey);
+			(global_repo_publickey.empty() ?
+				"id_rsa.pub" : global_repo_publickey);
+
 		auto private_key = default_sshdir +
-			(global_repo_publickey.empty() ? "id_rsa" : global_repo_privatekey);
+			(global_repo_publickey.empty() ?
+				"id_rsa" : global_repo_privatekey);
 
 		const char* passphrase =
-			global_repo_passphrase.empty() ? nullptr : global_repo_passphrase.c_str();
+			global_repo_passphrase.empty() ?
+				nullptr : global_repo_passphrase.c_str();
 
 		return git_cred_ssh_key_new(
 			cred,
@@ -221,7 +229,7 @@ int gitwork(git_repository* repo)
 		{
 			LOG_DBG << "git_index_write, path: "
 				<< entry->index_to_workdir->old_file.path
-				<< ", status: " << entry->status 
+				<< ", status: " << entry->status
 				<< ", err: "
 				<< git_error_last()->message;
 			return EXIT_FAILURE;
@@ -366,11 +374,10 @@ int gitwork(git_repository* repo)
 	return EXIT_SUCCESS;
 }
 
-int git_work_loop(int time,
-	const std::string& git_dir)
+int git_work_loop(int time, const std::string& git_dir)
 {
 	git_libgit2_init();
-	scoped_exit glibgit2_init([]() mutable
+	scoped_exit glibgit2_shutdown([]() mutable
 		{
 			git_libgit2_shutdown();
 		});
@@ -388,7 +395,7 @@ int git_work_loop(int time,
 
 		return EXIT_FAILURE;
 	}
-	scoped_exit git_shutdown([&repo]() mutable
+	scoped_exit grepository_free([&repo]() mutable
 		{
 			git_repository_free(repo);
 		});
