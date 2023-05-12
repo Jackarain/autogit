@@ -93,11 +93,11 @@ if(WIN32 AND EMBED_SSH_PATH)
 	set(GIT_SSH 1)
 endif()
 
-include(SelectHTTPSBackend)
+#include(SelectHTTPSBackend)
 include(SelectHashes)
 include(SelectHTTPParser)
 include(SelectRegex)
-include(SelectSSH)
+#include(SelectSSH)
 include(SelectWinHTTP)
 include(SelectZlib)
 
