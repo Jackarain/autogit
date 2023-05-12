@@ -358,17 +358,26 @@ else()
 		set(ENABLE_DEBUG_LOGGING ON)
 	#endif()
 
+	set(BUILD_STATIC_LIBS ON)
+
+	set(BUILD_SHARED_LIBS OFF)
+
 	set(BUILD_EXAMPLES OFF)
 	set(BUILD_TESTING OFF)
-	set(LIBSSH2_FOUND ON)
+
+	set(PICKY_COMPILER OFF)
+	set(RUN_DOCKER_TESTS OFF)
+	set(RUN_SSHD_TESTS OFF)
+
 	add_subdirectory(third_party/libssh2)
-	set_target_properties(libssh2 PROPERTIES FOLDER "third_party")
-	set_target_properties(libssh2 PROPERTIES POSITION_INDEPENDENT_CODE ON)
-	set(LIBSSH2_LIBRARIES libssh2)
+	set(LIBSSH2_LIBRARIES libssh2_static)
+	set_target_properties(libssh2_static PROPERTIES FOLDER "third_party")
+	set_target_properties(libssh2_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 	set(LIBSSH2_INCLUDE_DIRS
 		${CMAKE_CURRENT_SOURCE_DIR}/third_party/libssh2/include
 		${CMAKE_BINARY_DIR}/third_party/libssh2/src
 	)
+	set(LIBSSH2_FOUND ON)
 endif()
 
 ################################################################################
