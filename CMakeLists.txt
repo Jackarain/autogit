@@ -384,6 +384,7 @@ set(USE_ICONV OFF)
 set(USE_BUNDLED_ZLIB OFF)
 set(GIT_SSH ON)
 
+add_definitions(-DGIT_OPENSSL)
 add_definitions(-DGIT_SSH)
 add_definitions(-DGIT_HTTPS)
 
