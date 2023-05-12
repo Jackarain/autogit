@@ -21,3 +21,8 @@ set(SSL_EAY_LIBRARY ssl PARENT_SCOPE)
 
 set(OPENSSL_SSL_LIBRARY ssl PARENT_SCOPE)
 set(OPENSSL_CRYPTO_LIBRARY crypto PARENT_SCOPE)
+
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_library(cryptod ALIAS crypto)
+    add_library(ssld ALIAS ssl)
+endif()

@@ -4,6 +4,8 @@ else()
 ENABLE_LANGUAGE(ASM)
 endif()
 
+add_definitions(-DENGINESDIR="")
+
 include_directories(${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/include/ ../include)
 
 include_directories(asn1)
@@ -143,6 +145,32 @@ file(GLOB SRCS
 	ui/*.c
 	x509/*.c
 
+	crypto/cversion.c
+
+	engine/eng_all.c
+	engine/eng_cnf.c
+	engine/eng_ctrl.c
+	#engine/eng_devcrypto.c
+	engine/eng_dyn.c
+	engine/eng_err.c
+	engine/eng_fat.c
+	engine/eng_init.c
+	engine/eng_lib.c
+	engine/eng_list.c
+	engine/eng_openssl.c
+	engine/eng_pkey.c
+	engine/eng_rdrand.c
+	engine/eng_table.c
+	engine/tb_asnmth.c
+	engine/tb_cipher.c
+	engine/tb_dh.c
+	engine/tb_digest.c
+	engine/tb_dsa.c
+	engine/tb_eckey.c
+	engine/tb_pkmeth.c
+	engine/tb_rand.c
+	engine/tb_rsa.c
+
 	x509v3/v3_admis.c x509v3/v3_bcons.c  x509v3/v3_bitst.c  x509v3/v3_conf.c  x509v3/v3_extku.c  x509v3/v3_ia5.c  x509v3/v3_lib.c  x509v3/v3_prn.c  x509v3/v3_utl.c  x509v3/v3err.c  x509v3/v3_genn.c  x509v3/v3_alt.c  x509v3/v3_skey.c  x509v3/v3_akey.c  x509v3/v3_pku.c  x509v3/v3_int.c  x509v3/v3_enum.c  x509v3/v3_sxnet.c  x509v3/v3_cpols.c  x509v3/v3_crld.c  x509v3/v3_purp.c  x509v3/v3_info.c  x509v3/v3_akeya.c  x509v3/v3_pmaps.c  x509v3/v3_pcons.c  x509v3/v3_ncons.c  x509v3/v3_pcia.c  x509v3/v3_pci.c  x509v3/pcy_cache.c  x509v3/pcy_node.c  x509v3/pcy_data.c  x509v3/pcy_map.c  x509v3/pcy_tree.c  x509v3/pcy_lib.c  x509v3/v3_asid.c  x509v3/v3_addr.c  x509v3/v3_tlsf.c
 
 	ctype.c
@@ -162,7 +190,7 @@ set_target_properties(crypto PROPERTIES FOLDER "third_party/openssl")
 target_compile_definitions(crypto PUBLIC
 	-DOPENSSL_NO_ASM
 	-DOPENSSL_NO_ASYNC
-	-DOPENSSL_NO_ENGINE
+#	-DOPENSSL_NO_ENGINE
 	-DOPENSSL_NO_RC1
 	-DOPENSSL_NO_RC3
 	-DOPENSSL_NO_MD1
