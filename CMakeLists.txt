@@ -246,8 +246,19 @@ endif(NOT MSVC)
 if (ENABLE_SYSTEM_OPENSSL)
 	find_package(OpenSSL)
 else()
-	set(OPENSSL_FOUND TRUE)
+	set(OPENSSL_ROOT_DIR
+		${CMAKE_CURRENT_SOURCE_DIR}/third_party/openssl
+		${CMAKE_BINARY_DIR}/third_party/openssl/crypto/Debug
+		${CMAKE_BINARY_DIR}/third_party/openssl/ssl/Debug
+		${CMAKE_BINARY_DIR}/third_party/openssl/crypto/Release
+		${CMAKE_BINARY_DIR}/third_party/openssl/ssl/Release
+	)
 	add_subdirectory(third_party/openssl)
+	if (MSVC)
+		add_definitions(-DSIXTY_FOUR_BIT)
+	else()
+		add_definitions(-DDSIXTY_FOUR_BIT_LONG)
+	endif()
 	if (NOT MSVC AND NOT APPLE)
 		add_definitions(-DSIXTY_FOUR_BIT_LONG)
 		if (NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang"))
@@ -318,6 +329,8 @@ if (ENABLE_JEMALLOC_STATIC)
 	link_libraries(${JEMALLOC_LIBRARIES})
 endif()
 
+################################################################################
+
 if (WIN32 OR NOT ENABLE_SYSTEM_ZLIB)
 	add_subdirectory(third_party/zlib EXCLUDE_FROM_ALL)
 	set(ZLIB_LIBRARIES zlibstatic)
@@ -337,6 +350,26 @@ include_directories(${ZLIB_INCLUDE_DIRS})
 
 ################################################################################
 
+set(BUILD_EXAMPLES OFF)
+set(BUILD_TESTING OFF)
+set(LIBSSH2_FOUND ON)
+add_subdirectory(third_party/libssh2)
+add_library(ssh2 ALIAS libssh2)
+set_target_properties(libssh2 PROPERTIES FOLDER "third_party")
+set_target_properties(libssh2 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set(LIBSSH2_LIBRARIES libssh2)
+set(LIBSSH2_LIBRARY_DIRS
+	${CMAKE_BINARY_DIR}/third_party/libssh2/src/Debug
+	${CMAKE_BINARY_DIR}/third_party/libssh2/src/Release
+	${CMAKE_BINARY_DIR}/third_party/libssh2/src
+	)
+set(LIBSSH2_INCLUDE_DIRS
+	${CMAKE_CURRENT_SOURCE_DIR}/third_party/libssh2/include
+	${CMAKE_BINARY_DIR}/third_party/libssh2/src
+)
+
+################################################################################
+
 add_subdirectory(third_party/fmt)
 
 ################################################################################
@@ -345,6 +378,7 @@ set(BUILD_SHARED_LIBS OFF)
 set(BUILD_TESTS OFF)
 set(USE_NSEC OFF)
 set(USE_HTTPS ON)
+set(USE_SSH ON)
 set(SONAME OFF)
 set(USE_NTLMCLIENT OFF)
 set(USE_ICONV OFF)
@@ -371,6 +405,7 @@ link_libraries(
 
 		fmt
 		${OPENSSL_LIBRARIES}
+		${LIBSSH2_LIBRARIES}
 		${ZLIB_LIBRARIES}
 )
 
