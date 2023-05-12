@@ -403,14 +403,17 @@ include_directories(
 ################################################################################
 
 link_libraries(
+		${ZLIB_LIBRARIES}
+
 		Boost::thread
 		Boost::date_time
 		Boost::program_options
 
 		fmt
-		${OPENSSL_LIBRARIES}
+
+		git2
 		${LIBSSH2_LIBRARIES}
-		${ZLIB_LIBRARIES}
+		${OPENSSL_LIBRARIES}
 )
 
 ################################################################################
