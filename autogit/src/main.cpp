@@ -62,6 +62,18 @@ namespace po = boost::program_options;
 
 //////////////////////////////////////////////////////////////////////////
 
+std::string global_commit_message;
+
+std::string global_repo_username;
+std::string global_repo_password;
+
+std::string global_repo_publickey;
+std::string global_repo_privatekey;
+std::string global_repo_passphrase;
+
+std::string global_git_user_name;
+std::string global_git_user_mail;
+
 boost::thread global_gitwork_thrd;
 
 void signal_callback_handler(int signum)
@@ -74,36 +86,55 @@ int certificate_check_cb(git_cert *cert, int valid, const char *host, void *payl
     return 1; // Always accept the certificate
 }
 
+char* get_home_dir(void)
+{
+#ifdef _WIN32
+	return getenv("USERPROFILE");
+#else
+	return getenv("HOME");
+#endif
+}
+
 int cred_acquire_cb(git_cred** cred,
 	const char* url,
 	const char* username_from_url,
 	unsigned int allowed_types, void* payload)
 {
-	std::string baseinfo((const char*)payload);
-	auto result = strutil::split(baseinfo, ":");
-	for (auto& r : result)
+	if (allowed_types & GIT_CREDTYPE_SSH_KEY)
 	{
-		std::vector<uint8_t> str;
-		if (!strutil::from_hexstring(r, str))
-			return -1;
+		auto default_sshdir =
+			std::string(get_home_dir()) + "/.ssh/";
 
-		r = std::string(str.begin(), str.end());
+		auto public_key = default_sshdir +
+			(global_repo_publickey.empty() ? "id_rsa.pub" : global_repo_publickey);
+		auto private_key = default_sshdir +
+			(global_repo_publickey.empty() ? "id_rsa" : global_repo_privatekey);
+
+		const char* passphrase =
+			global_repo_passphrase.empty() ? nullptr : global_repo_passphrase.c_str();
+
+		return git_cred_ssh_key_new(
+			cred,
+			username_from_url,
+			public_key.c_str(),		// 这是公钥的路径.
+			private_key.c_str(),	// 这是私钥的路径.
+			passphrase				// 如果你的私钥有密码.
+		);
+	}
+	else if (allowed_types & GIT_CREDTYPE_USERPASS_PLAINTEXT)
+	{
+		if (global_repo_username.empty())
+			return GIT_EAUTH;
+
+		return git_cred_userpass_plaintext_new(cred,
+			global_repo_username.c_str(),
+			global_repo_password.c_str());
 	}
 
-	if (result.size() != 2)
-		return -1;
-
-	return git_cred_userpass_plaintext_new(cred,
-		result[0].c_str(),
-		result[1].c_str());
+	return GIT_EAUTH;
 }
 
-int gitwork(git_repository* repo,
-	const std::string& commit_message,
-	const std::string& git_username,
-	const std::string& git_password,
-	const std::string& git_user_name,
-	const std::string& git_user_mail)
+int gitwork(git_repository* repo)
 {
 	git_index* index = nullptr;
 	if (git_repository_index(&index, repo) != 0)
@@ -251,8 +282,8 @@ int gitwork(git_repository* repo,
 		git_signature* signature = nullptr;
 		// 创建一个新的签名
 		if (git_signature_now(&signature,
-			git_user_name.c_str(),
-			git_user_mail.c_str()) != 0)
+			global_git_user_name.c_str(),
+			global_git_user_mail.c_str()) != 0)
 		{
 			LOG_DBG << "git_signature_now, err: "
 				<< git_error_last()->message;
@@ -272,7 +303,7 @@ int gitwork(git_repository* repo,
 			signature,
 			signature,
 			nullptr,
-			commit_message.c_str(),
+			global_commit_message.c_str(),
 			tree,
 			1,
 			parent
@@ -307,13 +338,8 @@ int gitwork(git_repository* repo,
 		return EXIT_FAILURE;
 	}
 
-	auto baseinfo =
-	strutil::to_hex(git_username)
-		+ ":" +
-	strutil::to_hex(git_password);
-
 	options.callbacks.credentials = cred_acquire_cb;
-	options.callbacks.payload = (void*)baseinfo.c_str();
+	options.callbacks.payload = nullptr;
 
 	options.callbacks.certificate_check = certificate_check_cb;
 
@@ -338,12 +364,7 @@ int gitwork(git_repository* repo,
 }
 
 int git_work_loop(int time,
-	const std::string& git_dir,
-	const std::string& commit_message,
-	const std::string& git_username,
-	const std::string& git_password,
-	const std::string& git_user_name,
-	const std::string& git_user_mail)
+	const std::string& git_dir)
 {
 	git_libgit2_init();
 	scoped_exit glibgit2_init([]() mutable
@@ -373,12 +394,7 @@ int git_work_loop(int time,
 	{
 		while (true)
 		{
-			gitwork(repo,
-				commit_message,
-				git_username,
-				git_password,
-				git_user_name,
-				git_user_mail);
+			gitwork(repo);
 
 			// 再等下一个周期继续.
 			boost::this_thread::sleep_for(boost::chrono::seconds(time));
@@ -396,12 +412,6 @@ int main(int argc, char** argv)
 {
 	std::string git_dir;
 	std::string log_directory;
-	std::string commit_message;
-	std::string repo_username;
-	std::string repo_password;
-
-	std::string git_user_name;
-	std::string git_user_mail;
 
 	int time;
 	bool disable_logs = false;
@@ -411,13 +421,17 @@ int main(int argc, char** argv)
 	desc.add_options()
 		("help,h", "Help message.")
 		("repository", po::value<std::string>(&git_dir)->value_name("repository"), "Git repository path")
-		("commit_message", po::value<std::string>(&commit_message)->default_value("Commit by autogit"), "Git commit message")
+		("commit_message", po::value<std::string>(&global_commit_message)->default_value("Commit by autogit"), "Git commit message")
 
-		("repo_username", po::value<std::string>(&repo_username)->default_value(""), "Git http repo username")
-		("repo_password", po::value<std::string>(&repo_password)->default_value(""), "Git http repo password")
+		("repo_username", po::value<std::string>(&global_repo_username)->default_value(""), "Git http repo username")
+		("repo_password", po::value<std::string>(&global_repo_password)->default_value(""), "Git http repo password")
 
-		("git_user_name", po::value<std::string>(&git_user_name)->default_value(""), "Git repo user.name")
-		("git_user_mail", po::value<std::string>(&git_user_mail)->default_value(""), "Git repo user.mail")
+		("repo_publickey", po::value<std::string>(&global_repo_publickey)->default_value(""), "Git ssh repo public key")
+		("repo_privatekey", po::value<std::string>(&global_repo_privatekey)->default_value(""), "Git ssh repo private key")
+		("repo_passphrase", po::value<std::string>(&global_repo_passphrase)->default_value(""), "Git ssh repo private key passphrase")
+
+		("git_user_name", po::value<std::string>(&global_git_user_name)->default_value(""), "Git repo user.name")
+		("git_user_mail", po::value<std::string>(&global_git_user_mail)->default_value(""), "Git repo user.mail")
 
 		("time", po::value<int>(&time)->default_value(60), "Wait time seconds until committing.")
 		("disable_logs", po::value<bool>(&disable_logs)->default_value(false), "Disable logs.")
@@ -453,14 +467,9 @@ int main(int argc, char** argv)
 
 	LOG_DBG << "Running...";
 
-	global_gitwork_thrd = boost::thread([&]() {
-		git_work_loop(time,
-			git_dir,
-			commit_message,
-			repo_username,
-			repo_password,
-			git_user_name,
-			git_user_mail);
+	global_gitwork_thrd = boost::thread([&]()
+		{
+			git_work_loop(time, git_dir);
 		});
 
 	global_gitwork_thrd.join();
