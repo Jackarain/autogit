@@ -219,7 +219,10 @@ int gitwork(git_repository* repo)
 
 		if (ret != 0)
 		{
-			LOG_DBG << "git_index_write, err: "
+			LOG_DBG << "git_index_write, path: "
+				<< entry->index_to_workdir->old_file.path
+				<< ", status: " << entry->status 
+				<< ", err: "
 				<< git_error_last()->message;
 			return EXIT_FAILURE;
 		}
