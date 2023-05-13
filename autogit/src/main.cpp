@@ -12,6 +12,9 @@
 #include "autogit/logging.hpp"
 #include "autogit/scoped_exit.hpp"
 #include "autogit/strutil.hpp"
+#include "autogit/coroyield.hpp"
+#include "autogit/time_clock.hpp"
+#include "dirmon/dirmon.hpp"
 
 #include <signal.h>
 
@@ -26,7 +29,8 @@
 #include <boost/thread.hpp>
 #include <boost/program_options.hpp>
 namespace po = boost::program_options;
-
+#include <boost/asio.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 //////////////////////////////////////////////////////////////////////////
 
 #include <assert.h>
@@ -48,6 +52,7 @@ namespace po = boost::program_options;
 # define sleep(a) Sleep(a * 1000)
 #else
 # include <unistd.h>
+# include <sys/resource.h>
 #endif
 
 #ifndef PRIuZ
@@ -73,13 +78,6 @@ std::string global_ssh_passphrase;
 
 std::string global_git_author;
 std::string global_git_email;
-
-boost::thread global_gitwork_thrd;
-
-void signal_callback_handler(int signum)
-{
-	global_gitwork_thrd.interrupt();
-}
 
 int certificate_check_cb(git_cert *cert,
 	int valid,
@@ -379,7 +377,7 @@ int gitwork(git_repository* repo)
 	return EXIT_SUCCESS;
 }
 
-int git_work_loop(int check_interval, const std::string& git_dir)
+boost::asio::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir)
 {
 	git_libgit2_init();
 	scoped_exit glibgit2_shutdown([]() mutable
@@ -398,7 +396,7 @@ int git_work_loop(int check_interval, const std::string& git_dir)
 			<< " err: "
 			<< git_error_last()->message;
 
-		return EXIT_FAILURE;
+		co_return EXIT_FAILURE;
 	}
 	scoped_exit grepository_free([&repo]() mutable
 		{
@@ -411,8 +409,14 @@ int git_work_loop(int check_interval, const std::string& git_dir)
 		{
 			gitwork(repo);
 
+			dirmon::dirmon repo_change_notify(co_await boost::asio::this_coro::executor, git_dir);
+
+			co_await repo_change_notify.async_wait_dirchange();
+
 			// 再等下一个周期继续.
-			boost::this_thread::sleep_for(boost::chrono::seconds(check_interval));
+			awaitable_timer timer(co_await boost::asio::this_coro::executor);
+			timer.expires_from_now(std::chrono::seconds(check_interval));
+			co_await timer.async_wait();
 		}
 	}
 	catch (boost::thread_interrupted&)
@@ -420,11 +424,13 @@ int git_work_loop(int check_interval, const std::string& git_dir)
 		LOG_DBG << "git loop thread stopped";
 	}
 
-	return EXIT_SUCCESS;
+	co_return EXIT_SUCCESS;
 }
 
-int main(int argc, char** argv)
+boost::asio::awaitable<int> co_main(int argc, char** argv)
 {
+	co_await this_coro::coro_yield();
+
 	std::string git_dir;
 	std::string log_dir;
 
@@ -473,21 +479,128 @@ int main(int argc, char** argv)
 	if (vm.count("help") || argc == 1)
 	{
 		std::cerr << desc;
-		return EXIT_SUCCESS;
+		co_return EXIT_SUCCESS;
 	}
 
 	util::init_logging(log_dir);
-	signal(SIGINT, signal_callback_handler);
-	signal(SIGTERM, signal_callback_handler);
+
+	boost::asio::signal_set terminator_signal(co_await boost::asio::this_coro::executor);
+	terminator_signal.add(SIGINT);
+	terminator_signal.add(SIGTERM);
+
+#if defined(SIGQUIT)
+	terminator_signal.add(SIGQUIT);
+#endif // defined(SIGQUIT)
 
 	LOG_DBG << "Running...";
 
-	global_gitwork_thrd = boost::thread([&]()
+	using namespace boost::asio::experimental::awaitable_operators;
+
+	// 处理中止信号.
+	co_await(
+		git_work_loop(check_interval, git_dir)
+			||
+		terminator_signal.async_wait(boost::asio::use_awaitable)
+	);
+
+	terminator_signal.clear();
+
+	co_return EXIT_SUCCESS;
+}
+
+static int platform_init()
+{
+#if defined(WIN32) || defined(_WIN32)
+	/* Disable the "application crashed" popup. */
+	SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX |
+		SEM_NOOPENFILEERRORBOX);
+
+#if defined(DEBUG) ||defined(_DEBUG)
+	//	_CrtDumpMemoryLeaks();
+	// 	int flags = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
+	// 	flags |= _CRTDBG_LEAK_CHECK_DF;
+	// 	_CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
+	// 	_CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDOUT);
+	// 	_CrtSetDbgFlag(flags);
+#endif
+
+#if !defined(__MINGW32__)
+	_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
+	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
+#endif
+
+	_setmode(0, _O_BINARY);
+	_setmode(1, _O_BINARY);
+	_setmode(2, _O_BINARY);
+
+	/* Disable stdio output buffering. */
+	setvbuf(stdout, NULL, _IONBF, 0);
+	setvbuf(stderr, NULL, _IONBF, 0);
+
+	/* Enable minidump when application crashed. */
+#elif defined(__linux__)
+	rlimit of = { 50000, 100000 };
+	if (setrlimit(RLIMIT_NOFILE, &of) < 0)
+	{
+		perror("setrlimit for nofile");
+	}
+	struct rlimit core_limit;
+	core_limit.rlim_cur = RLIM_INFINITY;
+	core_limit.rlim_max = RLIM_INFINITY;
+	if (setrlimit(RLIMIT_CORE, &core_limit) < 0)
+	{
+		perror("setrlimit for coredump");
+	}
+
+	/* Set the stack size programmatically with setrlimit */
+	rlimit rl;
+	int result = getrlimit(RLIMIT_STACK, &rl);
+	if (result == 0)
+	{
+		const rlim_t stack_size = 100 * 1024 * 1024;
+		if (rl.rlim_cur < stack_size)
 		{
-			git_work_loop(check_interval, git_dir);
-		});
+			rl.rlim_cur = stack_size;
+			result = setrlimit(RLIMIT_STACK, &rl);
+			if (result != 0)
+				perror("setrlimit for stack size");
+		}
+	}
+#endif
 
-	global_gitwork_thrd.join();
+	std::ios::sync_with_stdio(false);
 
-	return EXIT_SUCCESS;
+#ifdef __linux__
+	signal(SIGPIPE, SIG_IGN);
+#else
+	set_thread_name("mainthread");
+#endif
+	return 0;
+}
+
+int main(int argc, char** argv)
+{
+	platform_init();
+
+	int main_return;
+
+	boost::asio::io_context ios;
+
+	boost::asio::co_spawn(ios, co_main(argc, argv), [&](std::exception_ptr e, int ret){
+		if (e)
+			std::rethrow_exception(e);
+		main_return = ret;
+		ios.stop();
+	});
+#if 0
+	pthread_atfork([](){
+		ios.notify_fork(boost::asio::execution_context::fork_prepare);
+	}, [](){
+		ios.notify_fork(boost::asio::execution_context::fork_parent);
+	}, [](){
+		ios.notify_fork(boost::asio::execution_context::fork_child);
+	});
+#endif
+	ios.run();
+	return main_return;
 }
