@@ -99,7 +99,7 @@ include(SelectHTTPParser)
 include(SelectRegex)
 #include(SelectSSH)
 include(SelectWinHTTP)
-include(SelectZlib)
+#include(SelectZlib)
 
 
 if(USE_SHA1 STREQUAL "CollisionDetection")
