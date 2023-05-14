@@ -3,6 +3,7 @@
 #include "gitpp/gitpp.hpp"
 #include "git2/oid.h"
 
+#include <exception>
 #include <git2.h>
 
 struct auto_init_libgit2 {
@@ -15,6 +16,11 @@ struct auto_init_libgit2 {
 };
 
 static auto_init_libgit2 ensure_libgit2_initialized;
+
+gitpp::exception::error::error()
+	: _e(git_error_last())
+{
+}
 
 gitpp::object::object(git_object* o)
   : obj_(o)

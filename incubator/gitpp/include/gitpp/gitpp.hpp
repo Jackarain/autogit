@@ -33,11 +33,8 @@ namespace gitpp {
 
 		struct error : public std::exception
 		{
-			error()
-				: std::exception(git_error_last()->message)
-			{
-				_e = git_error_last();
-			}
+			error();
+			virtual const char* what() const noexcept { return _e->message; }
 			const git_error * _e;
 		};
 	}
