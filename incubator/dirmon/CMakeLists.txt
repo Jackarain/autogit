@@ -5,6 +5,7 @@ file(GLOB dirmon_sources
 	src/*.cpp
 )
 add_library(dirmon STATIC ${dirmon_sources})
+target_link_libraries(dirmon Boost::asio)
 
 target_include_directories(dirmon PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
