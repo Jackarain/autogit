@@ -258,9 +258,9 @@ int gitwork(gitpp::repo& repo)
 	options.callbacks.certificate_check = certificate_check_cb;
 
 	// 执行推送操作
-	const char* refspec = "refs/heads/master";
+	char* refspec[1] = { (char*) "refs/heads/master" };
 	git_strarray arr = {
-		.strings = (char**)&refspec,
+		.strings = refspec,
 		.count = 1
 	};
 	if (git_remote_push(remote.native_handle(), &arr, &options) != 0)
