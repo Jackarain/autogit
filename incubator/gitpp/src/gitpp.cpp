@@ -4,6 +4,7 @@
 #include "git2/oid.h"
 
 #include <exception>
+#include <algorithm>
 #include <git2.h>
 
 struct auto_init_libgit2 {
