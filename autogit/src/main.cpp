@@ -227,8 +227,6 @@ int gitwork(gitpp::repo& repo)
 			return EXIT_FAILURE;
 		}
 
-		git_oid commit_id;
-
 		gitpp::tree tree = index.write_tree();
 
 		// 获取当前的 HEAD 提交作为父提交
@@ -240,24 +238,7 @@ int gitwork(gitpp::repo& repo)
 		gitpp::signature signature(global_git_author, global_git_email);
 
 		// 从树对象创建一个新的提交
-		if (git_commit_create_v(
-			&commit_id,
-			repo.native_handle(),
-			"HEAD",
-			signature.native_handle(),
-			signature.native_handle(),
-			nullptr,
-			global_commit_message.c_str(),
-			tree.native_handle(),
-			1,
-			parent.native_handle()
-		) != 0)
-		{
-			LOG_DBG << "git_commit_create_v, err: "
-				<< git_error_last()->message;
-
-			return EXIT_FAILURE;
-		}
+		repo.create_commit("HEAD", signature, signature, global_commit_message, tree, parent);
 	}
 
 	git_remote* remote = nullptr;

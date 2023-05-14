@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <exception>
 #include <boost/noncopyable.hpp>
+#include <vector>
+#include <string>
 #include <string_view>
 
 namespace gitpp {
@@ -118,6 +120,9 @@ namespace gitpp {
 		explicit object(git_object*);
 		object(const object&);
 		object(object&&);
+
+		oid get_oid() const;
+
 	};
 
 	class blob : public object
@@ -129,16 +134,12 @@ namespace gitpp {
 		std::size_t size() const;
 	};
 	
-	class commit : boost::noncopyable
+	class commit : public object
 	{
 	public:
 		explicit commit(git_commit*);
-		~commit();
 		git_commit* native_handle();
-
-	private:
-		git_commit* _git_commit;
-
+		const git_commit* native_handle() const;
 	};
 
 	class tree_entry
@@ -243,6 +244,19 @@ namespace gitpp {
 		git_index* _index;
 	};
 
+	class signature
+	{
+	public:
+		explicit signature(const signature&);
+		signature(const std::string& name,  const std::string& email);
+		~signature();
+		git_signature* native_handle();
+		const git_signature* native_handle() const;
+		signature& operator = (const signature&);
+	private:
+		git_signature* _git_sig;
+	};
+
 	class repo : boost::noncopyable
 	{
 		git_repository* repo_;
@@ -260,25 +274,28 @@ namespace gitpp {
 		status_list new_status_list();
 		reference head() const;
 		commit lookup_commit(oid);
+		
+		commit create_commit(const std::string& update_ref,
+			const signature& author,
+			const signature& committer,
+			const std::string& message,
+			const tree& tree,
+			commit parent
+		);
+		commit create_commit(const std::string& update_ref,
+			const signature& author,
+			const signature& committer,
+			const std::string& message,
+			const tree& tree,
+			std::vector<commit> parents
+		);
+
 		tree get_tree_by_commit(oid);
 		tree get_tree_by_treeid(oid);
 		blob get_blob(oid) const;
 
 		bool is_bare() const noexcept;
 
-	};
-
-	class signature
-	{
-	public:
-		explicit signature(const signature&);
-		signature(const std::string& name,  const std::string& email);
-		~signature();
-		git_signature* native_handle();
-		const git_signature* native_handle() const;
-		signature& operator = (const signature&);
-	private:
-		git_signature* _git_sig;
 	};
 
 	bool is_git_repo(std::filesystem::path);

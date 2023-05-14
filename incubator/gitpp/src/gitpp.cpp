@@ -44,6 +44,11 @@ gitpp::object::~object()
 		git_object_free(obj_);
 }
 
+gitpp::oid gitpp::object::get_oid() const
+{
+	return gitpp::oid( git_object_id(this->obj_) );
+}
+
 gitpp::blob::blob(git_blob* b)
 	: object((git_object*) b)
 {
@@ -63,17 +68,17 @@ std::size_t gitpp::blob::size() const
 }
 
 gitpp::commit::commit(git_commit* _git_commit)
-	: _git_commit(_git_commit)
+	: object( (git_object*) _git_commit)
 {}
-
-gitpp::commit::~commit()
-{
-	git_commit_free(_git_commit);
-}
 
 git_commit* gitpp::commit::native_handle()
 {
-	return _git_commit;
+	return reinterpret_cast<git_commit*> ( this->obj_ );
+}
+
+const git_commit* gitpp::commit::native_handle() const
+{
+	return reinterpret_cast<const git_commit*> ( this->obj_ );
 }
 
 gitpp::tree::tree(git_tree* t)
@@ -98,7 +103,6 @@ gitpp::tree_entry gitpp::tree::by_path(std::string path) const
 	gitpp::tree_entry sub_tree_entry(entry2);
 	return sub_tree_entry;
 }
-
 
 gitpp::tree::tree_iterator gitpp::tree::begin() const
 {
@@ -363,6 +367,7 @@ gitpp::tree gitpp::repo::get_tree_by_commit(gitpp::oid commitid)
 	git_commit_lookup(&commit, repo_, & commitid);
 	object a_commit( (git_object*) commit);
 	git_commit_tree(&ctree, commit);
+	git_commit_free(commit);
 	return tree(ctree);
 }
 
@@ -497,4 +502,54 @@ gitpp::signature& gitpp::signature::operator = (const signature& other)
 	git_signature_free(_git_sig);
 	git_signature_dup(&_git_sig, other.native_handle());
 	return *this;
+}
+
+gitpp::commit gitpp::repo::create_commit(const std::string& update_ref, const gitpp::signature& author, const gitpp::signature& committer
+	, const std::string& message, const gitpp::tree& tree, gitpp::commit parent)
+{
+	gitpp::oid commit_id;
+	const git_commit* parents_array[1] = { parent.native_handle() };
+
+	if (git_commit_create(
+		&commit_id,
+		this->native_handle(),
+		update_ref.c_str(),
+		author.native_handle(),
+		committer.native_handle(),
+		nullptr,
+		message.c_str(),
+		tree.native_handle(),
+		1,
+		parents_array) != 0)
+	{
+		throw gitpp::exception::error();
+	}
+
+	return lookup_commit(commit_id);}
+
+gitpp::commit gitpp::repo::create_commit(const std::string& update_ref, const gitpp::signature& author, const gitpp::signature& committer
+	, const std::string& message, const gitpp::tree& tree, std::vector<gitpp::commit> parents)
+{
+	gitpp::oid commit_id;
+	std::vector<const git_commit*> parents_array;
+	parents_array.reserve(parents.size());
+
+	std::transform(parents.begin(), parents.end(), std::back_inserter(parents_array), [](gitpp::commit& p){ return p.native_handle();});
+
+	if (git_commit_create(
+		&commit_id,
+		this->native_handle(),
+		update_ref.c_str(),
+		author.native_handle(),
+		committer.native_handle(),
+		nullptr,
+		message.c_str(),
+		tree.native_handle(),
+		parents.size(),
+		parents_array.data()) != 0)
+	{
+		throw gitpp::exception::error();
+	}
+
+	return lookup_commit(commit_id);
 }
