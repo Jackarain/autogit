@@ -125,7 +125,8 @@ gitpp::tree_entry::~tree_entry()
 }
 
 gitpp::tree_entry::tree_entry(tree_entry&& other)
-	: owned(other.owned), entry(other.entry)
+	: entry(other.entry)
+	, owned(other.owned)
 {
 	other.owned = false;
 }
@@ -219,6 +220,102 @@ gitpp::oid gitpp::oid::from_sha1_string(std::string_view s)
 	git_oid out;
 	git_oid_fromstrn(&out, s.data(), s.length());
 	return gitpp::oid(&out);
+}
+
+gitpp::status_list::status_list(git_status_list* _status_list)
+	: _status_list(_status_list)
+{}
+
+gitpp::status_list::~status_list()
+{
+	git_status_list_free(_status_list);
+}
+
+git_status_list* gitpp::status_list::native_handle()
+{
+	return _status_list;
+}
+
+const git_status_list* gitpp::status_list::native_handle() const
+{
+	return _status_list;
+}
+
+gitpp::status_list::git_status_entry_iterator::git_status_entry_iterator(status_list& parent, std::size_t idx)
+	: parent(parent)
+	, idx(idx)
+{}
+
+const git_status_entry* gitpp::status_list::git_status_entry_iterator::operator*()
+{
+	return git_status_byindex(parent.native_handle(), idx);
+}
+
+ gitpp::status_list::git_status_entry_iterator& gitpp::status_list::git_status_entry_iterator::operator++()
+{
+	idx ++;
+	return *this;
+}
+
+bool gitpp::status_list::git_status_entry_iterator::operator==(const git_status_entry_iterator & other) const
+{
+	return (&parent == &other.parent) && (this->idx == other.idx);
+}
+
+gitpp::status_list::git_status_entry_iterator gitpp::status_list::begin()
+{
+	return gitpp::status_list::git_status_entry_iterator(*this, 0);
+}
+
+gitpp::status_list::git_status_entry_iterator gitpp::status_list::end()
+{
+	return gitpp::status_list::git_status_entry_iterator(*this, size());
+}
+
+std::size_t gitpp::status_list::size() const
+{
+	return git_status_list_entrycount(_status_list);
+}
+
+gitpp::index::index(git_index* i)
+{
+	_index = i;
+}
+
+gitpp::index::~index()
+{
+	git_index_free(_index);
+}
+
+git_index* gitpp::index::native_handle()
+{
+	return _index;
+}
+
+gitpp::oid gitpp::index::write_tree()
+{
+	gitpp::oid tree_id;
+	if (git_index_write_tree(&tree_id, native_handle()) != 0)
+	{
+		throw gitpp::exception::error();
+	// LOG_DBG << "git_index_write_tree, err: "
+	// 	<< git_error_last()->message;
+	}
+	return tree_id;
+}
+
+gitpp::index gitpp::repo::get_index()
+{
+	git_index * _index = nullptr;
+	git_repository_index(&_index, native_handle());
+	return gitpp::index(_index);
+}
+
+gitpp::status_list gitpp::repo::new_status_list()
+{
+	git_status_list * _status_list;
+	git_status_list_new(&_status_list, native_handle(), nullptr);
+	return gitpp::status_list(_status_list);
 }
 
 gitpp::reference gitpp::repo::head() const

@@ -1,16 +1,20 @@
 
 #pragma once
 
+#include <cstddef>
 #include <git2/types.h>
 #include <git2/buffer.h>
+#include <git2/status.h>
+#include <git2/errors.h>
 
 #include <filesystem>
+#include <exception>
 #include <boost/noncopyable.hpp>
 #include <string_view>
 
 namespace gitpp {
 
-	namespace exception{
+	namespace exception {
 
 		struct git2_exception : public std::exception
 		{
@@ -25,6 +29,16 @@ namespace gitpp {
 		struct resolve_failed : public git2_exception
 		{
 			virtual const char* what() const noexcept { return "reference invalid"; }
+		};
+
+		struct error : public std::exception
+		{
+			error()
+				: std::exception(git_error_last()->message)
+			{
+				_e = git_error_last();
+			}
+			const git_error * _e;
 		};
 	}
 
@@ -170,6 +184,53 @@ namespace gitpp {
 
 	};
 
+	class status_list : boost::noncopyable
+	{
+	public:
+		struct git_status_entry_iterator
+		{
+			git_status_entry_iterator(status_list& parent, std::size_t idx);
+
+			const git_status_entry* operator*();
+
+			git_status_entry_iterator& operator ++();
+
+			bool operator == (const git_status_entry_iterator&) const;
+
+			status_list & parent;
+			int idx;
+		};
+
+	public:
+		explicit status_list(git_status_list*);
+		~status_list();
+
+		git_status_list* native_handle();
+		const git_status_list* native_handle() const;
+
+		git_status_entry_iterator begin();
+		git_status_entry_iterator end();
+
+	public:
+		std::size_t size() const;
+
+	private:
+		git_status_list* _status_list;
+	};
+
+	class index : boost::noncopyable
+	{
+	public:
+		explicit index(git_index*);
+		~index();
+		git_index* native_handle();
+
+		oid write_tree();
+
+	private:
+		git_index* _index;
+	};
+
 	class repo : boost::noncopyable
 	{
 		git_repository* repo_;
@@ -183,6 +244,8 @@ namespace gitpp {
 		const git_repository* native_handle() const { return repo_;}
 
 	public:
+		index get_index();
+		status_list new_status_list();
 		reference head() const;
 		tree get_tree_by_commit(oid);
 		tree get_tree_by_treeid(oid);
