@@ -297,9 +297,10 @@ std::size_t gitpp::status_list::size() const
 	return git_status_list_entrycount(_status_list);
 }
 
-gitpp::index::index(git_index* i)
+gitpp::index::index(gitpp::repo* belong, git_index* i)
+	: belong(belong)
+	, _index(i)
 {
-	_index = i;
 }
 
 gitpp::index::~index()
@@ -312,23 +313,22 @@ git_index* gitpp::index::native_handle()
 	return _index;
 }
 
-gitpp::oid gitpp::index::write_tree()
+gitpp::tree gitpp::index::write_tree()
 {
 	gitpp::oid tree_id;
 	if (git_index_write_tree(&tree_id, native_handle()) != 0)
 	{
 		throw gitpp::exception::error();
-	// LOG_DBG << "git_index_write_tree, err: "
-	// 	<< git_error_last()->message;
 	}
-	return tree_id;
+
+	return belong->get_tree_by_treeid(tree_id);
 }
 
 gitpp::index gitpp::repo::get_index()
 {
 	git_index * _index = nullptr;
 	git_repository_index(&_index, native_handle());
-	return gitpp::index(_index);
+	return gitpp::index(this, _index);
 }
 
 gitpp::status_list gitpp::repo::new_status_list()
@@ -464,4 +464,37 @@ gitpp::buf::operator std::string_view() noexcept
 	return std::string_view(buf_.ptr, buf_.size);
 }
 
+gitpp::signature::signature(const gitpp::signature& other)
+{
+	git_signature_dup(&_git_sig, other.native_handle());
+}
 
+gitpp::signature::signature(const std::string& name,  const std::string& email)
+{
+	if (git_signature_now(&_git_sig, name.c_str(), email.c_str()) != 0)
+	{
+		throw gitpp::exception::error();
+	}
+}
+
+git_signature* gitpp::signature::native_handle()
+{
+	return _git_sig;
+}
+
+const git_signature* gitpp::signature::native_handle() const
+{
+	return _git_sig;
+}
+
+gitpp::signature::~signature()
+{
+	git_signature_free(_git_sig);
+}
+
+gitpp::signature& gitpp::signature::operator = (const signature& other)
+{
+	git_signature_free(_git_sig);
+	git_signature_dup(&_git_sig, other.native_handle());
+	return *this;
+}

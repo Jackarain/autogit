@@ -229,38 +229,23 @@ int gitwork(gitpp::repo& repo)
 
 		git_oid commit_id;
 
-		auto tree_id = index.write_tree();
-
-		gitpp::tree tree = repo.get_tree_by_treeid(gitpp::oid(tree_id));
+		gitpp::tree tree = index.write_tree();
 
 		// 获取当前的 HEAD 提交作为父提交
 		gitpp::oid parent_id = repo.head().target();
 
 		gitpp::commit parent = repo.lookup_commit(parent_id);
 
-		git_signature* signature = nullptr;
 		// 创建一个新的签名
-		if (git_signature_now(&signature,
-			global_git_author.c_str(),
-			global_git_email.c_str()) != 0)
-		{
-			LOG_DBG << "git_signature_now, err: "
-				<< git_error_last()->message;
-
-			return EXIT_FAILURE;
-		}
-		scoped_exit gsignature_free([&signature]() mutable
-			{
-				git_signature_free(signature);
-			});
+		gitpp::signature signature(global_git_author, global_git_email);
 
 		// 从树对象创建一个新的提交
 		if (git_commit_create_v(
 			&commit_id,
 			repo.native_handle(),
 			"HEAD",
-			signature,
-			signature,
+			signature.native_handle(),
+			signature.native_handle(),
 			nullptr,
 			global_commit_message.c_str(),
 			tree.native_handle(),

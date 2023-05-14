@@ -39,6 +39,8 @@ namespace gitpp {
 		};
 	}
 
+	class repo;
+
 	class oid
 	{
 		git_oid oid_;
@@ -230,13 +232,14 @@ namespace gitpp {
 	class index : boost::noncopyable
 	{
 	public:
-		explicit index(git_index*);
+		explicit index(repo* belong, git_index*);
 		~index();
 		git_index* native_handle();
 
-		oid write_tree();
+		tree write_tree();
 
 	private:
+		repo* belong;
 		git_index* _index;
 	};
 
@@ -263,6 +266,19 @@ namespace gitpp {
 
 		bool is_bare() const noexcept;
 
+	};
+
+	class signature
+	{
+	public:
+		explicit signature(const signature&);
+		signature(const std::string& name,  const std::string& email);
+		~signature();
+		git_signature* native_handle();
+		const git_signature* native_handle() const;
+		signature& operator = (const signature&);
+	private:
+		git_signature* _git_sig;
 	};
 
 	bool is_git_repo(std::filesystem::path);
