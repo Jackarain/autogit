@@ -26,6 +26,7 @@ add_executable(autogit
 target_link_libraries(autogit
 	dirmon
 	Boost::asio
+	gitpp
 	git2
 )
 

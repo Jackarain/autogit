@@ -15,6 +15,7 @@
 #include "autogit/coroyield.hpp"
 #include "autogit/time_clock.hpp"
 #include "dirmon/dirmon.hpp"
+#include "gitpp/gitpp.hpp"
 
 #include <signal.h>
 
@@ -146,46 +147,22 @@ int cred_acquire_cb(git_cred** cred,
 	return GIT_EAUTH;
 }
 
-int gitwork(git_repository* repo)
+int gitwork(gitpp::repo& repo)
 {
-	git_index* index = nullptr;
-	if (git_repository_index(&index, repo) != 0)
-	{
-		LOG_DBG << "git_repository_index, err: "
-			<< git_error_last()->message;
+	gitpp::index index = repo.get_index();
 
-		return EXIT_FAILURE;
-	}
-	scoped_exit gindex_free([&index]() mutable
-		{
-			git_index_free(index);
-		});
-
-	git_status_list* status = nullptr;
-	if (git_status_list_new(&status, repo, nullptr) != 0)
-	{
-		LOG_DBG << "git_status_list_new, err: "
-			<< git_error_last()->message;
-
-		return EXIT_FAILURE;
-	}
-	scoped_exit gstatus_list_free([&status]() mutable
-		{
-			git_status_list_free(status);
-		});
+	gitpp::status_list status = repo.new_status_list();
 
 	size_t commit_obj = 0;
-	size_t status_count = git_status_list_entrycount(status);
-	for (size_t i = 0; i < status_count; ++i)
+	for (const git_status_entry* entry : status)
 	{
-		const git_status_entry* entry = git_status_byindex(status, i);
 		int ret = 0;
 
 		switch (entry->status & 0xfffffff0)
 		{
 		case GIT_STATUS_WT_NEW:
 		{
-			ret = git_index_add_bypath(index, entry->index_to_workdir->old_file.path);
+			ret = git_index_add_bypath(index.native_handle(), entry->index_to_workdir->old_file.path);
 			commit_obj++;
 			LOG_DBG << "Untracked file: "
 				<< entry->index_to_workdir->old_file.path;
@@ -193,7 +170,7 @@ int gitwork(git_repository* repo)
 		break;
 		case GIT_STATUS_WT_MODIFIED:
 		{
-			ret = git_index_add_bypath(index, entry->index_to_workdir->old_file.path);
+			ret = git_index_add_bypath(index.native_handle(), entry->index_to_workdir->old_file.path);
 			commit_obj++;
 			LOG_DBG << "modify file: "
 				<< entry->index_to_workdir->old_file.path;
@@ -201,7 +178,7 @@ int gitwork(git_repository* repo)
 		break;
 		case GIT_STATUS_WT_DELETED:
 		{
-			ret = git_index_add_bypath(index, entry->index_to_workdir->old_file.path);
+			ret = git_index_add_bypath(index.native_handle(), entry->index_to_workdir->old_file.path);
 			commit_obj++;
 			LOG_DBG << "delete file: "
 				<< entry->index_to_workdir->old_file.path;
@@ -209,7 +186,7 @@ int gitwork(git_repository* repo)
 		break;
 		case GIT_STATUS_WT_TYPECHANGE:
 		{
-			ret = git_index_add_bypath(index, entry->index_to_workdir->old_file.path);
+			ret = git_index_add_bypath(index.native_handle(), entry->index_to_workdir->old_file.path);
 			commit_obj++;
 			LOG_DBG << "typechg file: "
 				<< entry->index_to_workdir->old_file.path;
@@ -221,7 +198,7 @@ int gitwork(git_repository* repo)
 				<< entry->index_to_workdir->old_file.path
 				<< " to "
 				<< entry->index_to_workdir->new_file.path;
-			ret = git_index_add_bypath(index, entry->index_to_workdir->old_file.path);
+			ret = git_index_add_bypath(index.native_handle(), entry->index_to_workdir->old_file.path);
 			commit_obj++;
 		}
 		break;
@@ -242,7 +219,7 @@ int gitwork(git_repository* repo)
 
 	if (commit_obj > 0)
 	{
-		if (git_index_write(index) != 0)
+		if (git_index_write(index.native_handle()) != 0)
 		{
 			LOG_DBG << "git_index_write, err: "
 				<< git_error_last()->message;
@@ -250,39 +227,17 @@ int gitwork(git_repository* repo)
 			return EXIT_FAILURE;
 		}
 
-		git_oid tree_id, parent_id, commit_id;
-		if (git_index_write_tree(&tree_id, index) != 0)
-		{
-			LOG_DBG << "git_index_write_tree, err: "
-				<< git_error_last()->message;
+		git_oid commit_id;
 
-			return EXIT_FAILURE;
-		}
+		auto tree_id = index.write_tree();
 
-		git_tree* tree = nullptr;
-		if (git_tree_lookup(&tree, repo, &tree_id) != 0)
-		{
-			LOG_DBG << "git_tree_lookup, err: "
-				<< git_error_last()->message;
-
-			return EXIT_FAILURE;
-		}
-		scoped_exit gtree_free([&tree]() mutable
-			{
-				git_tree_free(tree);
-			});
+		gitpp::tree tree = repo.get_tree_by_treeid(gitpp::oid(tree_id));
 
 		// 获取当前的 HEAD 提交作为父提交
-		if (git_reference_name_to_id(&parent_id, repo, "HEAD") != 0)
-		{
-			LOG_DBG << "git_reference_name_to_id, err: "
-				<< git_error_last()->message;
-
-			return EXIT_FAILURE;
-		}
+		gitpp::oid parent_id = repo.head().target();
 
 		git_commit* parent = nullptr;
-		if (git_commit_lookup(&parent, repo, &parent_id) != 0)
+		if (git_commit_lookup(&parent, repo.native_handle(), &parent_id) != 0)
 		{
 			LOG_DBG << "git_commit_lookup, err: "
 				<< git_error_last()->message;
@@ -313,13 +268,13 @@ int gitwork(git_repository* repo)
 		// 从树对象创建一个新的提交
 		if (git_commit_create_v(
 			&commit_id,
-			repo,
+			repo.native_handle(),
 			"HEAD",
 			signature,
 			signature,
 			nullptr,
 			global_commit_message.c_str(),
-			tree,
+			tree.native_handle(),
 			1,
 			parent
 		) != 0)
@@ -332,7 +287,7 @@ int gitwork(git_repository* repo)
 	}
 
 	git_remote* remote = nullptr;
-	if (git_remote_lookup(&remote, repo, "origin") != 0)
+	if (git_remote_lookup(&remote, repo.native_handle(), "origin") != 0)
 	{
 		LOG_DBG << "git_remote_lookup, err: "
 			<< git_error_last()->message;
@@ -380,29 +335,7 @@ int gitwork(git_repository* repo)
 
 boost::asio::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir)
 {
-	git_libgit2_init();
-	scoped_exit glibgit2_shutdown([]() mutable
-		{
-			git_libgit2_shutdown();
-		});
-
-	git_repository* repo = nullptr;
-	if (git_repository_open_ext(&repo,
-		git_dir.c_str(),
-		0,
-		nullptr) != 0)
-	{
-		LOG_DBG << "git_repository_open_ext, dir: "
-			<< git_dir
-			<< " err: "
-			<< git_error_last()->message;
-
-		co_return EXIT_FAILURE;
-	}
-	scoped_exit grepository_free([&repo]() mutable
-		{
-			git_repository_free(repo);
-		});
+	gitpp::repo repo(git_dir);
 
 	try
 	{
