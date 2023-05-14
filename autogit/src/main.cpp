@@ -241,18 +241,7 @@ int gitwork(gitpp::repo& repo)
 		repo.create_commit("HEAD", signature, signature, global_commit_message, tree, parent);
 	}
 
-	git_remote* remote = nullptr;
-	if (git_remote_lookup(&remote, repo.native_handle(), "origin") != 0)
-	{
-		LOG_DBG << "git_remote_lookup, err: "
-			<< git_error_last()->message;
-
-		return EXIT_FAILURE;
-	}
-	scoped_exit gremote_free([&remote]() mutable
-		{
-			git_remote_free(remote);
-		});
+	gitpp::remote remote = repo.get_remote("origin");
 
 	git_push_options options;
 	if (git_push_init_options(&options, GIT_PUSH_OPTIONS_VERSION) != 0)
@@ -274,7 +263,7 @@ int gitwork(gitpp::repo& repo)
 		.strings = (char**)&refspec,
 		.count = 1
 	};
-	if (git_remote_push(remote, &arr, &options) != 0)
+	if (git_remote_push(remote.native_handle(), &arr, &options) != 0)
 	{
 		LOG_DBG << "git_remote_push, err: "
 			<< git_error_last()->message;

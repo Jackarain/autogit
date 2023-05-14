@@ -265,6 +265,12 @@ namespace gitpp {
 		explicit remote(git_remote*);
 		remote(const remote&);
 		remote(remote&&);
+		~remote();
+
+		remote& operator = (const remote&);
+		remote& operator = (remote&&);
+
+		git_remote* native_handle();
 
 	private:
 		git_remote* _git_remote;
@@ -286,6 +292,8 @@ namespace gitpp {
 		index get_index();
 		status_list new_status_list();
 		reference head() const;
+		remote get_remote(const std::string& remote_name);
+
 		commit lookup_commit(oid);
 		
 		commit create_commit(const std::string& update_ref,

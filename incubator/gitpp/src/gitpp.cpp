@@ -328,6 +328,49 @@ gitpp::tree gitpp::index::write_tree()
 	return belong->get_tree_by_treeid(tree_id);
 }
 
+gitpp::remote::remote(git_remote* _r)
+	: _git_remote(_r)
+{}
+
+gitpp::remote::remote(const gitpp::remote& other)
+{
+	git_remote_dup(&_git_remote, other._git_remote);
+}
+
+gitpp::remote::remote(gitpp::remote&& other)
+	: _git_remote(other._git_remote)
+{
+	other._git_remote = nullptr;
+}
+
+gitpp::remote::~remote()
+{
+	if (_git_remote)
+		git_remote_free(_git_remote);
+}
+
+gitpp::remote& gitpp::remote::operator=(const gitpp::remote& other)
+{
+	if (_git_remote)
+		git_remote_free(_git_remote);
+	git_remote_dup(&_git_remote, other._git_remote);
+	return *this;
+}
+
+gitpp::remote& gitpp::remote::operator=(gitpp::remote&& other)
+{
+	if (_git_remote)
+		git_remote_free(_git_remote);
+	_git_remote = other._git_remote;
+	other._git_remote = nullptr;
+	return *this;
+}
+
+git_remote* gitpp::remote::native_handle()
+{
+	return _git_remote;
+}
+
 gitpp::index gitpp::repo::get_index()
 {
 	git_index * _index = nullptr;
@@ -348,6 +391,16 @@ gitpp::reference gitpp::repo::head() const
 	git_repository_head(&out_ref, repo_);
 
 	return reference(out_ref);
+}
+
+gitpp::remote gitpp::repo::get_remote(const std::string& name)
+{
+	git_remote * _remote;
+	if (git_remote_lookup(&_remote, native_handle(), name.c_str()) != 0)
+	{
+		throw gitpp::exception::error();
+	}
+	return gitpp::remote(_remote);
 }
 
 gitpp::commit gitpp::repo::lookup_commit(oid commitid)
