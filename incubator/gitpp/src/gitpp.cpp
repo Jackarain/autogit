@@ -474,6 +474,12 @@ gitpp::signature::signature(const gitpp::signature& other)
 	git_signature_dup(&_git_sig, other.native_handle());
 }
 
+gitpp::signature::signature(gitpp::signature&& other)
+	: _git_sig(other._git_sig)
+{
+	other._git_sig = nullptr;
+}
+
 gitpp::signature::signature(const std::string& name,  const std::string& email)
 {
 	if (git_signature_now(&_git_sig, name.c_str(), email.c_str()) != 0)
@@ -494,13 +500,23 @@ const git_signature* gitpp::signature::native_handle() const
 
 gitpp::signature::~signature()
 {
-	git_signature_free(_git_sig);
+	if (_git_sig)
+		git_signature_free(_git_sig);
 }
 
 gitpp::signature& gitpp::signature::operator = (const signature& other)
 {
 	git_signature_free(_git_sig);
 	git_signature_dup(&_git_sig, other.native_handle());
+	return *this;
+}
+
+gitpp::signature& gitpp::signature::operator = (signature&& other)
+{
+	if (_git_sig)
+		git_signature_free(_git_sig);
+	_git_sig = other._git_sig;
+	other._git_sig = nullptr;
 	return *this;
 }
 

@@ -248,13 +248,26 @@ namespace gitpp {
 	{
 	public:
 		explicit signature(const signature&);
+		signature(signature&&);
 		signature(const std::string& name,  const std::string& email);
 		~signature();
 		git_signature* native_handle();
 		const git_signature* native_handle() const;
 		signature& operator = (const signature&);
+		signature& operator = (signature&&);
 	private:
 		git_signature* _git_sig;
+	};
+
+	class remote
+	{
+	public:
+		explicit remote(git_remote*);
+		remote(const remote&);
+		remote(remote&&);
+
+	private:
+		git_remote* _git_remote;
 	};
 
 	class repo : boost::noncopyable
