@@ -126,6 +126,18 @@ namespace gitpp {
 		std::string_view get_content() const;
 		std::size_t size() const;
 	};
+	
+	class commit : boost::noncopyable
+	{
+	public:
+		explicit commit(git_commit*);
+		~commit();
+		git_commit* native_handle();
+
+	private:
+		git_commit* _git_commit;
+
+	};
 
 	class tree_entry
 	{
@@ -195,7 +207,7 @@ namespace gitpp {
 			bool operator == (const git_status_entry_iterator&) const;
 
 			status_list & parent;
-			int idx;
+			std::size_t idx;
 		};
 
 	public:
@@ -244,6 +256,7 @@ namespace gitpp {
 		index get_index();
 		status_list new_status_list();
 		reference head() const;
+		commit lookup_commit(oid);
 		tree get_tree_by_commit(oid);
 		tree get_tree_by_treeid(oid);
 		blob get_blob(oid) const;

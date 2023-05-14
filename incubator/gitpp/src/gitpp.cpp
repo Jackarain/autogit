@@ -62,6 +62,20 @@ std::size_t gitpp::blob::size() const
 	return content_size;
 }
 
+gitpp::commit::commit(git_commit* _git_commit)
+	: _git_commit(_git_commit)
+{}
+
+gitpp::commit::~commit()
+{
+	git_commit_free(_git_commit);
+}
+
+git_commit* gitpp::commit::native_handle()
+{
+	return _git_commit;
+}
+
 gitpp::tree::tree(git_tree* t)
 	: object((git_object*) t)
 {
@@ -330,6 +344,16 @@ gitpp::reference gitpp::repo::head() const
 	git_repository_head(&out_ref, repo_);
 
 	return reference(out_ref);
+}
+
+gitpp::commit gitpp::repo::lookup_commit(oid commitid)
+{
+	git_commit* r = nullptr;
+	if (git_commit_lookup(&r, native_handle(), &commitid) != 0)
+	{
+		throw gitpp::exception::error();
+	}
+	return gitpp::commit(r);
 }
 
 gitpp::tree gitpp::repo::get_tree_by_commit(gitpp::oid commitid)

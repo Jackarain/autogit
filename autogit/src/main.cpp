@@ -236,18 +236,7 @@ int gitwork(gitpp::repo& repo)
 		// 获取当前的 HEAD 提交作为父提交
 		gitpp::oid parent_id = repo.head().target();
 
-		git_commit* parent = nullptr;
-		if (git_commit_lookup(&parent, repo.native_handle(), &parent_id) != 0)
-		{
-			LOG_DBG << "git_commit_lookup, err: "
-				<< git_error_last()->message;
-
-			return EXIT_FAILURE;
-		}
-		scoped_exit gcommit_free([&parent]() mutable
-			{
-				git_commit_free(parent);
-			});
+		gitpp::commit parent = repo.lookup_commit(parent_id);
 
 		git_signature* signature = nullptr;
 		// 创建一个新的签名
@@ -276,7 +265,7 @@ int gitwork(gitpp::repo& repo)
 			global_commit_message.c_str(),
 			tree.native_handle(),
 			1,
-			parent
+			parent.native_handle()
 		) != 0)
 		{
 			LOG_DBG << "git_commit_create_v, err: "
