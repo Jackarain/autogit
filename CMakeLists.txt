@@ -396,6 +396,8 @@ set(USE_NTLMCLIENT OFF)
 set(USE_ICONV OFF)
 set(USE_BUNDLED_ZLIB OFF)
 set(GIT_SSH ON)
+set(USE_SHA1 "OpenSSL")
+set(USE_SHA256 "OpenSSL")
 
 add_definitions(-DGIT_OPENSSL)
 add_definitions(-DGIT_SSH)
@@ -406,7 +408,7 @@ include_directories(${LIBSSH2_INCLUDE_DIRS})
 
 add_subdirectory(third_party/libgit2 EXCLUDE_FROM_ALL)
 set(GIT2_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libgit2/include)
-set_target_properties(git2 PROPERTIES FOLDER "third_party/")
+set_target_properties(libgit2 PROPERTIES FOLDER "third_party/")
 
 ################################################################################
 
@@ -425,7 +427,7 @@ link_libraries(
 
 		fmt
 
-		git2
+		libgit2
 		${LIBSSH2_LIBRARIES}
 		${OPENSSL_LIBRARIES}
 )
