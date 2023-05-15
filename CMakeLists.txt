@@ -398,6 +398,7 @@ set(USE_BUNDLED_ZLIB OFF)
 set(GIT_SSH ON)
 set(USE_SHA1 "OpenSSL")
 set(USE_SHA256 "OpenSSL")
+set(REGEX_BACKEND "builtin")
 
 add_definitions(-DGIT_OPENSSL)
 add_definitions(-DGIT_SSH)
