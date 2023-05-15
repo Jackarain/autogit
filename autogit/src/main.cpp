@@ -178,7 +178,7 @@ int gitwork(gitpp::repo& repo)
 		break;
 		case GIT_STATUS_WT_DELETED:
 		{
-			ret = git_index_add_bypath(index.native_handle(), entry->index_to_workdir->old_file.path);
+			ret = git_index_remove_bypath(index.native_handle(), entry->index_to_workdir->old_file.path);
 			commit_obj++;
 			LOG_DBG << "delete file: "
 				<< entry->index_to_workdir->old_file.path;
