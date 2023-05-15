@@ -27,7 +27,6 @@ target_link_libraries(autogit
 	dirmon
 	Boost::asio
 	gitpp
-	git2
 )
 
 if (HAVE_IOCTL_SIOCGIFADDR)
