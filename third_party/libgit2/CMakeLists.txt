@@ -1,11 +1,12 @@
-# CMake build script for the libgit2 project
+# libgit2: the cross-platform, linkable library implementation of git.
 # See `README.md` for build instructions.
+#
+# This top-level CMakeLists.txt sets up configuration options and
+# determines which subprojects to build.
 
 cmake_minimum_required(VERSION 3.5.1)
 
-project(libgit2 VERSION "1.4.0" LANGUAGES C)
-
-cmake_policy(SET CMP0077 NEW)
+project(libgit2 VERSION "1.6.4" LANGUAGES C)
 
 # Add find modules to the path
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
@@ -14,9 +15,13 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
 # Build options
 #
 
+# Experimental features
+option(EXPERIMENTAL_SHA256     "Enable experimental SHA256 support (for R&D/testing)"  OFF)
+
 # Optional subsystems
-option(BUILD_SHARED_LIBS       "Build Shared Library (OFF for Static)"                 OFF)
-option(BUILD_TESTS             "Build Tests using the Clar suite"                      OFF)
+option(BUILD_SHARED_LIBS       "Build Shared Library (OFF for Static)"                  OFF)
+option(BUILD_TESTS             "Build Tests using the Clar suite"                       OFF)
+option(BUILD_CLI               "Build the command-line interface"                       OFF)
 option(BUILD_EXAMPLES          "Build library usage example apps"                      OFF)
 option(BUILD_FUZZERS           "Build the fuzz targets"                                OFF)
 
@@ -25,9 +30,10 @@ option(USE_THREADS             "Use threads for parallel processing when possibl
 option(USE_NSEC                "Support nanosecond precision file mtimes and ctimes"    ON)
 
 # Backend selection
-option(USE_SSH                 "Link with libssh2 to enable SSH support"               OFF)
+option(USE_SSH                 "Link with libssh2 to enable SSH support"               ON)
 option(USE_HTTPS               "Enable HTTPS support. Can be set to a specific backend" ON)
-option(USE_SHA1                "Enable SHA1. Can be set to CollisionDetection(ON)/HTTPS/Generic" ON)
+option(USE_SHA1                "Enable SHA1. Can be set to CollisionDetection(ON)/HTTPS" ON)
+option(USE_SHA256              "Enable SHA256. Can be set to HTTPS/Builtin" ON)
 option(USE_GSSAPI              "Link with libgssapi for SPNEGO auth"      OFF)
    set(USE_HTTP_PARSER         "" CACHE STRING "Specifies the HTTP Parser implementation; either system or builtin.")
    set(REGEX_BACKEND           "" CACHE STRING "Regular expression implementation. One of regcomp_l, pcre2, pcre, regcomp, or builtin.")
@@ -79,7 +85,7 @@ endif()
 if(WIN32)
 	# By default, libgit2 is built with WinHTTP.  To use the built-in
 	# HTTP transport, invoke CMake with the "-DUSE_WINHTTP=OFF" argument.
-	option(USE_WINHTTP         "Use Win32 WinHTTP routines"                         ON)
+	option(USE_WINHTTP         "Use Win32 WinHTTP routines"                         OFF)
 endif()
 
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
@@ -104,6 +110,7 @@ include(IdeSplitSources)
 include(FeatureSummary)
 include(EnableWarnings)
 include(DefaultCFlags)
+include(ExperimentalFeatures)
 
 
 #
@@ -126,6 +133,14 @@ if(BUILD_FUZZERS)
 		message(FATAL_ERROR "Cannot build the fuzzer and the tests or examples together")
 	endif()
 	add_subdirectory(fuzzers)
+endif()
+
+
+# Export for people who use us as a dependency
+
+if(NOT "${CMAKE_CURRENT_SOURCE_DIR}" STREQUAL "${CMAKE_SOURCE_DIR}")
+	set(LIBGIT2_DEPENDENCY_OBJECTS ${LIBGIT2_DEPENDENCY_OBJECTS} PARENT_SCOPE)
+	set(LIBGIT2_SYSTEM_LIBS ${LIBGIT2_SYSTEM_LIBS} PARENT_SCOPE)
 endif()
 
 

@@ -138,5 +138,3 @@ include_directories(${PROJECT_BINARY_DIR}/src/pcre)
 add_library(pcre OBJECT ${PCRE_HEADERS} ${PCRE_SOURCES} ${PCREPOSIX_SOURCES})
 
 # end CMakeLists.txt
-set_target_properties(pcre PROPERTIES FOLDER "third_party/libgit2")
-
