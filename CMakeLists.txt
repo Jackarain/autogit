@@ -410,6 +410,9 @@ add_subdirectory(third_party/libgit2 EXCLUDE_FROM_ALL)
 set(LIBGIT2_LIBRARIES pcre http-parser util libgit2)
 set(GIT2_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libgit2/include)
 set_target_properties(libgit2 PROPERTIES FOLDER "third_party/")
+set_target_properties(pcre PROPERTIES FOLDER "third_party/")
+set_target_properties(http-parser PROPERTIES FOLDER "third_party/")
+set_target_properties(util PROPERTIES FOLDER "third_party/")
 
 ################################################################################
 
