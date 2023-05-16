@@ -12,8 +12,6 @@
 #include "autogit/logging.hpp"
 #include "autogit/scoped_exit.hpp"
 #include "autogit/strutil.hpp"
-#include "autogit/coroyield.hpp"
-#include "autogit/time_clock.hpp"
 #include "dirmon/dirmon.hpp"
 #include "gitpp/gitpp.hpp"
 
