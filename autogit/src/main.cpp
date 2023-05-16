@@ -71,6 +71,7 @@ namespace net = boost::asio;
 //////////////////////////////////////////////////////////////////////////
 
 std::string global_commit_message;
+bool global_force_push;
 
 std::string global_http_username;
 std::string global_http_password;
@@ -269,11 +270,16 @@ int gitwork(gitpp::repo& repo)
 	options.callbacks.certificate_check = certificate_check_cb;
 
 	// 执行推送操作
-	char* refspec[1] = { (char*) "refs/heads/master" };
+	char* refspec[1] = { (char*)"refs/heads/master" };
+	char* force_refspec[1] = { (char*)"+refs/heads/master:refs/heads/master" };
 	git_strarray arr = {
 		.strings = refspec,
 		.count = 1
 	};
+
+	if (global_force_push)
+		arr.strings = force_refspec;
+
 	if (git_remote_push(remote.native_handle(), &arr, &options) != 0)
 	{
 		LOG_DBG << "git_remote_push, err: "
@@ -333,6 +339,7 @@ net::awaitable<int> co_main(int argc, char** argv)
 		("help,h", "Help message.")
 		("repository", po::value<std::string>(&git_dir)->value_name("repository"), "Git repository path.")
 		("commit_msg", po::value<std::string>(&global_commit_message)->default_value("Commit by autogit"), "Git commit message.")
+		("force_push", po::value<bool>(&global_force_push)->default_value(false), "Git force push.")
 
 		("http_username", po::value<std::string>(&global_http_username)->default_value(""), "Username for HTTP auth.")
 		("http_password", po::value<std::string>(&global_http_password)->default_value(""), "Password for HTTP auth.")
