@@ -289,7 +289,7 @@ int gitwork(gitpp::repo& repo)
 		return EXIT_FAILURE;
 	}
 
-	LOG_DBG << "Successfully push to remote";
+	LOG_DBG << "Successfully pushed to remote repository";
 
 	return EXIT_SUCCESS;
 }
@@ -303,11 +303,17 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 	{
 		while (true)
 		{
-			gitwork(repo);
+			try
+			{
+				gitwork(repo);
+			}
+			catch (const std::exception& e)
+			{
+				LOG_ERR << "gitwork: " << e.what();
+			}
 
-			dirmon::dirmon repo_change_notify(executor, git_dir);
-			co_await repo_change_notify.async_wait_dirchange();
-
+			auto monitor = dirmon::dirmon(executor, git_dir);
+			co_await monitor.async_wait_dirchange();
 			if (check_interval > 0)
 			{
 				net::steady_timer timer(executor);
@@ -317,7 +323,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 			}
 		}
 	}
-	catch (boost::thread_interrupted&)
+	catch (std::exception&)
 	{
 		LOG_DBG << "git loop thread stopped";
 	}
