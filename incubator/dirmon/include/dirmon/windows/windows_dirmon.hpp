@@ -1,7 +1,9 @@
-
+﻿
 #pragma once
 
+#include <set>
 #include <filesystem>
+
 #include <boost/asio.hpp>
 #include <boost/asio/windows/overlapped_handle.hpp>
 #include <boost/asio/awaitable.hpp>
@@ -18,6 +20,11 @@ namespace dirmon {
 			: m_dirhandle(std::forward<ExecutionContext>(e), dirname.string())
 		{}
 
+		void exclude(const std::string& str)
+		{
+			m_filters.insert(str);
+		}
+
 		boost::asio::awaitable<std::vector<dir_change_notify>> async_wait_dirchange()
 		{
 			std::vector<dir_change_notify> ret;
@@ -26,7 +33,7 @@ namespace dirmon {
 
 			if (bytes_transferred >= sizeof(FILE_NOTIFY_INFORMATION))
 			{
-				for (FILE_NOTIFY_INFORMATION* file_notify_info = reinterpret_cast<PFILE_NOTIFY_INFORMATION>(buf.data());;
+				for (auto file_notify_info = reinterpret_cast<PFILE_NOTIFY_INFORMATION>(buf.data());;
 					file_notify_info = reinterpret_cast<PFILE_NOTIFY_INFORMATION>(reinterpret_cast<char*>(file_notify_info) + file_notify_info->NextEntryOffset)
 				)
 				{
@@ -34,7 +41,9 @@ namespace dirmon {
 
 					c.file_name = boost::nowide::narrow(file_notify_info->FileName, file_notify_info->FileNameLength/2);
 
-					ret.push_back(c);
+					if (!filter(c.file_name.string()))
+						ret.push_back(c);
+
 					if (file_notify_info->NextEntryOffset ==0)
 						break;
 				}
@@ -48,6 +57,20 @@ namespace dirmon {
 			m_dirhandle.close(ec);
 		}
 
+	private:
+		bool filter(const std::string& str) const noexcept
+		{
+			for (const auto& p : m_filters)
+			{
+				if (str.starts_with(p))
+					return true;
+			}
+
+			return false;
+		}
+
+	private:
+		std::set<std::string> m_filters;
 		detail::win_dirchange_read_handle m_dirhandle;
 	};
 }

@@ -1,6 +1,7 @@
-
+﻿
 #pragma once
 
+#include <set>
 #include <map>
 #include <filesystem>
 #include <boost/asio.hpp>
@@ -25,6 +26,11 @@ namespace dirmon {
 			// scan for subdir and add it.
 			add_subdirs(dirname);
         }
+
+		void exclude(const std::string& str)
+		{
+			m_filters.insert(str);
+		}
 
 		void add_watch(std::filesystem::path dirname)
 		{
@@ -67,6 +73,10 @@ namespace dirmon {
 						dir_change_notify c;
 						std::string file_name = file_notify_info->name;
 						c.file_name = std::filesystem::path(wd_map.left.find(file_notify_info->wd)->second) / file_name;
+
+						if (filter(c.file_name.string()))
+							continue;
+
 						ret.push_back(c);
 
 						auto mask = file_notify_info->mask;
@@ -128,6 +138,20 @@ namespace dirmon {
 			m_inotify_handle.close(ec);
 		}
 
+	private:
+		bool filter(const std::string& str) const noexcept
+		{
+			for (const auto& p : m_filters)
+			{
+				if (str.starts_with(p))
+					return true;
+			}
+
+			return false;
+		}
+
+	private:
+		std::set<std::string> m_filters;
 		boost::asio::posix::stream_descriptor m_inotify_handle;
 		boost::bimap<int, std::string> wd_map;
 
