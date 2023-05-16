@@ -32,6 +32,9 @@
 namespace po = boost::program_options;
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
+
+namespace net = boost::asio;
+
 //////////////////////////////////////////////////////////////////////////
 
 #include <assert.h>
@@ -150,44 +153,49 @@ int cred_acquire_cb(git_cred** cred,
 int gitwork(gitpp::repo& repo)
 {
 	gitpp::index index = repo.get_index();
-
 	gitpp::status_list status = repo.new_status_list();
 
-	size_t commit_obj = 0;
+	size_t commit_count = 0;
 	for (const git_status_entry* entry : status)
 	{
+		auto& old_file_path = entry->index_to_workdir->old_file.path;
+		auto handle = index.native_handle();
 		int ret = 0;
 
 		switch (entry->status & 0xfffffff0)
 		{
 		case GIT_STATUS_WT_NEW:
 		{
-			ret = git_index_add_bypath(index.native_handle(), entry->index_to_workdir->old_file.path);
-			commit_obj++;
+			ret = git_index_add_bypath(handle, old_file_path);
+
+			commit_count++;
 			LOG_DBG << "Untracked file: "
 				<< entry->index_to_workdir->old_file.path;
 		}
 		break;
 		case GIT_STATUS_WT_MODIFIED:
 		{
-			ret = git_index_add_bypath(index.native_handle(), entry->index_to_workdir->old_file.path);
-			commit_obj++;
+			ret = git_index_add_bypath(handle, old_file_path);
+
+			commit_count++;
 			LOG_DBG << "modify file: "
 				<< entry->index_to_workdir->old_file.path;
 		}
 		break;
 		case GIT_STATUS_WT_DELETED:
 		{
-			ret = git_index_remove_bypath(index.native_handle(), entry->index_to_workdir->old_file.path);
-			commit_obj++;
+			ret = git_index_remove_bypath(handle, old_file_path);
+
+			commit_count++;
 			LOG_DBG << "delete file: "
 				<< entry->index_to_workdir->old_file.path;
 		}
 		break;
 		case GIT_STATUS_WT_TYPECHANGE:
 		{
-			ret = git_index_add_bypath(index.native_handle(), entry->index_to_workdir->old_file.path);
-			commit_obj++;
+			ret = git_index_add_bypath(handle, old_file_path);
+
+			commit_count++;
 			LOG_DBG << "typechg file: "
 				<< entry->index_to_workdir->old_file.path;
 		}
@@ -198,8 +206,9 @@ int gitwork(gitpp::repo& repo)
 				<< entry->index_to_workdir->old_file.path
 				<< " to "
 				<< entry->index_to_workdir->new_file.path;
-			ret = git_index_add_bypath(index.native_handle(), entry->index_to_workdir->old_file.path);
-			commit_obj++;
+
+			ret = git_index_add_bypath(handle, old_file_path);
+			commit_count++;
 		}
 		break;
 		default:
@@ -208,8 +217,8 @@ int gitwork(gitpp::repo& repo)
 
 		if (ret != 0)
 		{
-			LOG_DBG << "git_index_write, path: "
-				<< entry->index_to_workdir->old_file.path
+			LOG_DBG << "git_index_add_bypath, path: "
+				<< old_file_path
 				<< ", status: " << entry->status
 				<< ", err: "
 				<< git_error_last()->message;
@@ -217,7 +226,7 @@ int gitwork(gitpp::repo& repo)
 		}
 	}
 
-	if (commit_obj > 0)
+	if (commit_count > 0)
 	{
 		if (git_index_write(index.native_handle()) != 0)
 		{
@@ -231,14 +240,18 @@ int gitwork(gitpp::repo& repo)
 
 		// 获取当前的 HEAD 提交作为父提交
 		gitpp::oid parent_id = repo.head().target();
-
 		gitpp::commit parent = repo.lookup_commit(parent_id);
 
 		// 创建一个新的签名
 		gitpp::signature signature(global_git_author, global_git_email);
 
 		// 从树对象创建一个新的提交
-		repo.create_commit("HEAD", signature, signature, global_commit_message, tree, parent);
+		repo.create_commit("HEAD",
+			signature,
+			signature,
+			global_commit_message,
+			tree,
+			parent);
 	}
 
 	gitpp::remote remote = repo.get_remote("origin");
@@ -277,8 +290,9 @@ int gitwork(gitpp::repo& repo)
 	return EXIT_SUCCESS;
 }
 
-boost::asio::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir)
+net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir)
 {
+	auto executor = co_await net::this_coro::executor;
 	gitpp::repo repo(git_dir);
 
 	try
@@ -287,14 +301,16 @@ boost::asio::awaitable<int> git_work_loop(int check_interval, const std::string&
 		{
 			gitwork(repo);
 
-			dirmon::dirmon repo_change_notify(co_await boost::asio::this_coro::executor, git_dir);
-
+			dirmon::dirmon repo_change_notify(executor, git_dir);
 			co_await repo_change_notify.async_wait_dirchange();
 
-			// 再等下一个周期继续.
-			awaitable_timer timer(co_await boost::asio::this_coro::executor);
-			timer.expires_from_now(std::chrono::seconds(check_interval));
-			co_await timer.async_wait();
+			if (check_interval > 0)
+			{
+				net::steady_timer timer(executor);
+
+				timer.expires_from_now(std::chrono::seconds(check_interval));
+				co_await timer.async_wait(net::use_awaitable);
+			}
 		}
 	}
 	catch (boost::thread_interrupted&)
@@ -305,10 +321,8 @@ boost::asio::awaitable<int> git_work_loop(int check_interval, const std::string&
 	co_return EXIT_SUCCESS;
 }
 
-boost::asio::awaitable<int> co_main(int argc, char** argv)
+net::awaitable<int> co_main(int argc, char** argv)
 {
-	co_await this_coro::coro_yield();
-
 	std::string git_dir;
 	std::string log_dir;
 
@@ -362,7 +376,7 @@ boost::asio::awaitable<int> co_main(int argc, char** argv)
 
 	util::init_logging(log_dir);
 
-	boost::asio::signal_set terminator_signal(co_await boost::asio::this_coro::executor);
+	net::signal_set terminator_signal(co_await net::this_coro::executor);
 	terminator_signal.add(SIGINT);
 	terminator_signal.add(SIGTERM);
 
@@ -372,13 +386,12 @@ boost::asio::awaitable<int> co_main(int argc, char** argv)
 
 	LOG_DBG << "Running...";
 
-	using namespace boost::asio::experimental::awaitable_operators;
+	using namespace net::experimental::awaitable_operators;
 
 	// 处理中止信号.
 	co_await(
 		git_work_loop(check_interval, git_dir)
-			||
-		terminator_signal.async_wait(boost::asio::use_awaitable)
+			|| terminator_signal.async_wait(net::use_awaitable)
 	);
 
 	terminator_signal.clear();
@@ -386,150 +399,21 @@ boost::asio::awaitable<int> co_main(int argc, char** argv)
 	co_return EXIT_SUCCESS;
 }
 
-#ifdef WIN32
-
-const DWORD MS_VC_EXCEPTION = 0x406D1388;
-
-#pragma pack(push,8)
-typedef struct tagTHREADNAME_INFO
-{
-	DWORD dwType; // Must be 0x1000.
-	LPCSTR szName; // Pointer to name (in user addr space).
-	DWORD dwThreadID; // Thread ID (-1=caller thread).
-	DWORD dwFlags; // Reserved for future use, must be zero.
-} THREADNAME_INFO;
-#pragma pack(pop)
-
-void SetThreadName(uint32_t dwThreadID, const char* threadName)
-{
-#if __MINGW32__
-	(void)dwThreadID;
-	(void)threadName;
-#else
-	THREADNAME_INFO info;
-	info.dwType = 0x1000;
-	info.szName = threadName;
-	info.dwThreadID = dwThreadID;
-	info.dwFlags = 0;
-
-	__try
-	{
-		RaiseException(MS_VC_EXCEPTION, 0, sizeof(info) / sizeof(ULONG_PTR), (ULONG_PTR*)&info);
-	}
-	__except (EXCEPTION_EXECUTE_HANDLER)
-	{
-	}
-#endif
-}
-
-void set_thread_name(const char* name)
-{
-	SetThreadName(GetCurrentThreadId(), name);
-}
-
-#elif __linux__
-
-void set_thread_name(const char* name)
-{
-	prctl(PR_SET_NAME, name, 0, 0, 0);
-}
-
-
-#endif
-
-static int platform_init()
-{
-#if defined(WIN32) || defined(_WIN32)
-	/* Disable the "application crashed" popup. */
-	SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX |
-		SEM_NOOPENFILEERRORBOX);
-
-#if defined(DEBUG) ||defined(_DEBUG)
-	//	_CrtDumpMemoryLeaks();
-	// 	int flags = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
-	// 	flags |= _CRTDBG_LEAK_CHECK_DF;
-	// 	_CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE);
-	// 	_CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDOUT);
-	// 	_CrtSetDbgFlag(flags);
-#endif
-
-#if !defined(__MINGW32__)
-	_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
-	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
-#endif
-
-	_setmode(0, _O_BINARY);
-	_setmode(1, _O_BINARY);
-	_setmode(2, _O_BINARY);
-
-	/* Disable stdio output buffering. */
-	setvbuf(stdout, NULL, _IONBF, 0);
-	setvbuf(stderr, NULL, _IONBF, 0);
-
-	/* Enable minidump when application crashed. */
-#elif defined(__linux__)
-	rlimit of = { 50000, 100000 };
-	if (setrlimit(RLIMIT_NOFILE, &of) < 0)
-	{
-		perror("setrlimit for nofile");
-	}
-	struct rlimit core_limit;
-	core_limit.rlim_cur = RLIM_INFINITY;
-	core_limit.rlim_max = RLIM_INFINITY;
-	if (setrlimit(RLIMIT_CORE, &core_limit) < 0)
-	{
-		perror("setrlimit for coredump");
-	}
-
-	/* Set the stack size programmatically with setrlimit */
-	rlimit rl;
-	int result = getrlimit(RLIMIT_STACK, &rl);
-	if (result == 0)
-	{
-		const rlim_t stack_size = 100 * 1024 * 1024;
-		if (rl.rlim_cur < stack_size)
-		{
-			rl.rlim_cur = stack_size;
-			result = setrlimit(RLIMIT_STACK, &rl);
-			if (result != 0)
-				perror("setrlimit for stack size");
-		}
-	}
-#endif
-
-	std::ios::sync_with_stdio(false);
-
-#ifdef __linux__
-	signal(SIGPIPE, SIG_IGN);
-#elif WIN32
-	set_thread_name("mainthread");
-#endif
-	return 0;
-}
-
 int main(int argc, char** argv)
 {
-	platform_init();
-
 	int main_return;
 
-	boost::asio::io_context ios;
+	net::io_context ioc;
+	net::co_spawn(ioc,
+		co_main(argc, argv),
+		[&](std::exception_ptr e, int ret)
+		{
+			if (e)
+				std::rethrow_exception(e);
+			main_return = ret;
+			ioc.stop();
+		});
+	ioc.run();
 
-	boost::asio::co_spawn(ios, co_main(argc, argv), [&](std::exception_ptr e, int ret){
-		if (e)
-			std::rethrow_exception(e);
-		main_return = ret;
-		ios.stop();
-	});
-#if 0
-	pthread_atfork([](){
-		ios.notify_fork(boost::asio::execution_context::fork_prepare);
-	}, [](){
-		ios.notify_fork(boost::asio::execution_context::fork_parent);
-	}, [](){
-		ios.notify_fork(boost::asio::execution_context::fork_child);
-	});
-#endif
-	ios.run();
 	return main_return;
 }
