@@ -276,6 +276,7 @@ include_directories(${OPENSSL_INCLUDE_DIR})
 ################################################################################
 
 set(BUILD_ASIO_BEAST ON)
+set(USE_BOOST_FILESYSTEM ON)
 
 if (ENABLE_BUILD_TESTS)
 	set(USE_BOOST_TEST ON)
@@ -431,6 +432,7 @@ link_libraries(
 		Boost::thread
 		Boost::date_time
 		Boost::program_options
+		Boost::filesystem
 
 		fmt
 
@@ -478,7 +480,6 @@ endif()
 ################################################################################
 
 add_subdirectory(incubator)
-
 add_subdirectory(autogit)
 
 ################################################################################

@@ -8,6 +8,13 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DENABLE_LOGGER -DDISABL
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -DENABLE_LOGGER -DDISABLE_LOGGER_TO_CONSOLE -DLOGGER_DBG_VIEW")
 set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} -DENABLE_LOGGER -DDISABLE_LOGGER_TO_CONSOLE -DLOGGER_DBG_VIEW")
 
+file(GLOB watchman_HEADERS
+	${CMAKE_CURRENT_SOURCE_DIR}/include/watchman/notify_event.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/watchman/watchman.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/watchman/windows/windows_watchman.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/watchman/linux/linux_watchman.hpp
+)
+
 file(GLOB autogit_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/autogit/logging.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/autogit/scoped_exit.hpp
@@ -20,11 +27,11 @@ file(GLOB autogit_SRCS
 
 add_executable(autogit
 	${autogit_HEADERS}
+	${watchman_HEADERS}
 	${autogit_SRCS}
 	)
 
 target_link_libraries(autogit
-	dirmon
 	Boost::asio
 	gitpp
 )

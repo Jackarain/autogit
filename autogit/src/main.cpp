@@ -12,7 +12,9 @@
 #include "autogit/logging.hpp"
 #include "autogit/scoped_exit.hpp"
 #include "autogit/strutil.hpp"
-#include "dirmon/dirmon.hpp"
+
+#include "watchman/watchman.hpp"
+
 #include "gitpp/gitpp.hpp"
 
 #include <signal.h>
@@ -47,11 +49,11 @@ namespace net = boost::asio;
 #ifdef _WIN32
 # include <io.h>
 # include <Windows.h>
-# define open _open
-# define read _read
-# define close _close
-# define ssize_t int
-# define sleep(a) Sleep(a * 1000)
+// # define open _open
+// # define read _read
+// # define close _close
+// # define ssize_t int
+// # define sleep(a) Sleep(a * 1000)
 #else
 # include <unistd.h>
 # include <sys/prctl.h>
@@ -298,6 +300,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 {
 	auto executor = co_await net::this_coro::executor;
 	gitpp::repo repo(git_dir);
+	watchman::watcher monitor(executor, boost::filesystem::path(git_dir));
 
 	try
 	{
@@ -312,8 +315,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 				LOG_ERR << "gitwork: " << e.what();
 			}
 
-			auto monitor = dirmon::dirmon(executor, git_dir);
-			co_await monitor.async_wait_dirchange();
+			co_await monitor.async_wait(net::use_awaitable);
 			if (check_interval > 0)
 			{
 				net::steady_timer timer(executor);
