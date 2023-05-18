@@ -173,17 +173,21 @@ namespace watchman {
 					(const inotify_event*)(m_bufs_pending.data());
 
 				fs::path filename;
+				std::optional<fs::path> fdir;
 				bool add = false;
 
 				notify.type_ = notify_type(ev->mask, add);
 
 				if (ev->mask == IN_MOVED_FROM)
 				{
-					auto fdir = find_dir(ev->wd);
+					fdir = find_dir(ev->wd);
 					if (fdir)
 						filename = *fdir / ev->name;
 					else
 						filename = ev->name;
+
+					if (fs::is_directory(filename))
+						check_sub_directory(filename, false);
 
 					notify.path_ = filename;
 
@@ -196,7 +200,7 @@ namespace watchman {
 
 				if (ev->mask == IN_MOVED_TO)
 				{
-					auto fdir = find_dir(ev->wd);
+					fdir = find_dir(ev->wd);
 					if (fdir)
 						filename = *fdir / ev->name;
 					else
@@ -206,7 +210,7 @@ namespace watchman {
 				}
 				else
 				{
-					auto fdir = find_dir(ev->wd);
+					fdir = find_dir(ev->wd);
 					if (fdir)
 						filename = *fdir / ev->name;
 					else
