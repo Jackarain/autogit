@@ -15,6 +15,7 @@
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/windows/overlapped_ptr.hpp>
 #include <boost/asio/windows/overlapped_handle.hpp>
+#include <boost/asio/associated_cancellation_slot.hpp>
 
 #include <boost/filesystem.hpp>
 #include <boost/throw_exception.hpp>
@@ -115,6 +116,7 @@ namespace watchman {
 		template <typename Handler>
 		void start_op(Handler&& handler)
 		{
+			auto slot = net::get_associated_cancellation_slot(handler);
 			using unique_array_ptr = std::unique_ptr<uint8_t[]>;
 
 			const DWORD buffer_size = 8192;
@@ -144,6 +146,16 @@ namespace watchman {
 
 			net::windows::overlapped_ptr op(
 				this->get_executor(), std::move(inside_handler));
+
+			if (slot.is_connected())
+			{
+				slot.assign([handle = this->native_handle(),
+					op = op.get()](auto type) mutable
+				{
+					if (boost::asio::cancellation_type::none != type)
+						::CancelIoEx(handle, op);
+				});
+			}
 
 			DWORD transferred = 0;
 
