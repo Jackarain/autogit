@@ -315,7 +315,18 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 				LOG_ERR << "gitwork: " << e.what();
 			}
 
-			co_await monitor.async_wait(net::use_awaitable);
+			auto result = co_await monitor.async_wait(net::use_awaitable);
+			for (const auto& file : result)
+			{
+				std::ostringstream oss;
+
+				oss << "CHG: " << (int)file.type_ << ", FILE: " << file.path_;
+				if (!file.new_path_.empty())
+					oss << " -> " << file.new_path_;
+
+				LOG_DBG << oss.str();
+			}
+
 			if (check_interval > 0)
 			{
 				net::steady_timer timer(executor);
