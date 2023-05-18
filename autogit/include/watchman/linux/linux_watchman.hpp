@@ -103,6 +103,19 @@ namespace watchman {
 		{
 			std::memset(m_bufs.get(), 0, 192);
 
+			auto slot = net::get_associated_cancellation_slot(handler);
+			if (slot.is_connected())
+			{
+				slot.assign([this](auto type) mutable
+				{
+					if (boost::asio::cancellation_type::none != type)
+					{
+						boost::system::error_code ignore_ec;
+						this->cancel(ignore_ec);
+					}
+				});
+			}
+
 			this->async_read_some(net::buffer(m_bufs.get(), 8192),
 				[this, handler = std::move(handler)](
 					boost::system::error_code ec,
