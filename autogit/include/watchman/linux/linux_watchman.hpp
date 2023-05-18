@@ -47,7 +47,7 @@ namespace watchman {
 	public:
 		linux_watch_service(const Executor& ex, const fs::path& dir)
 			: net::posix::basic_stream_descriptor<Executor>(ex)
-			, m_watch_path(dir)
+			, m_watch_dir(dir)
 			, m_bufs(std::make_unique<std::array<char, 8192>>())
 		{
 			open(dir);
@@ -66,7 +66,7 @@ namespace watchman {
 			this->close(ec);
 
 			this->assign(inotify_init1(IN_CLOEXEC | IN_NONBLOCK), ec);
-			m_watch_path = dir;
+			m_watch_dir = dir;
 
 			add_directory(dir);
 		}
@@ -76,7 +76,7 @@ namespace watchman {
 			this->close();
 
 			this->assign(inotify_init1(IN_CLOEXEC | IN_NONBLOCK));
-			m_watch_path = dir;
+			m_watch_dir = dir;
 
 			add_directory(dir);
 		}
@@ -173,17 +173,21 @@ namespace watchman {
 
 				bool add = false;
 				notify.type_ = notify_type(ev->mask, add);
-				notify.path_ = ev->name;
+
+				fs::path filename;
+				auto fdir = find_dir(ev->wd);
+				if (fdir)
+					filename = *fdir / ev->name;
+				else
+					filename = ev->name;
 
 				if (add)
 				{
-					auto fdir = find_dir(ev->wd);
 					if (fdir)
-					{
-						auto dir = *fdir / ev->name;
-						add_directory(dir);
-					}
+						add_directory(filename);
 				}
+
+				notify.path_ = filename;
 
 				result.push_back(notify);
 				m_bufs_pending.erase(0, sizeof(inotify_event) + ev->len);
@@ -268,7 +272,7 @@ namespace watchman {
 		}
 
 	private:
-		fs::path m_watch_path;
+		fs::path m_watch_dir;
 		using watch_descriptors = boost::bimap<int, fs::path>;
 		watch_descriptors m_watch_descriptors;
 		std::unique_ptr<std::array<char, 8192>> m_bufs;
