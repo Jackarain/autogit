@@ -308,7 +308,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 		{
 			try
 			{
-				gitwork(repo);
+				// gitwork(repo);
 			}
 			catch (const std::exception& e)
 			{

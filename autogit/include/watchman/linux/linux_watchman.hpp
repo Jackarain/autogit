@@ -69,6 +69,7 @@ namespace watchman {
 			m_watch_dir = dir;
 
 			add_directory(dir);
+			add_sub_directory(dir);
 		}
 
 		inline void open(const fs::path& dir)
@@ -79,6 +80,7 @@ namespace watchman {
 			m_watch_dir = dir;
 
 			add_directory(dir);
+			add_sub_directory(dir);
 		}
 
 		template <typename Handler>
@@ -172,59 +174,81 @@ namespace watchman {
 				const inotify_event* ev =
 					(const inotify_event*)(m_bufs_pending.data());
 
-				fs::path filename;
-				std::optional<fs::path> fdir;
-				bool add = false;
+				LOG_DBG << "inotify_event, mask: " << ev->mask << ", name: " << ev->name;
 
+				if (ev->mask == IN_IGNORED)
+				{
+					m_bufs_pending.erase(0, sizeof(inotify_event) + ev->len);
+					continue;
+				}	
+
+				bool add = false;
 				notify.type_ = notify_type(ev->mask, add);
 
-				if (ev->mask == IN_MOVED_FROM)
+				fs::path filename;
+
+				std::optional<fs::path> fdir = find_dir(ev->wd);
+				if (fdir)
 				{
-					fdir = find_dir(ev->wd);
-					if (fdir)
-						filename = *fdir / ev->name;
-					else
-						filename = ev->name;
+					filename = *fdir / ev->name;
+					LOG_DBG << "fdir: " << *fdir
+						<< ", fullpath: " << filename
+						<< ", wd: " << ev->wd
+						<< ", mask: " << ev->mask;
+				}
+				else
+				{
+					filename = ev->name;
+					LOG_DBG << "fdir is nullptr, path: "
+						<< filename
+						<< ", wd: " << ev->wd
+						<< ", mask: " << ev->mask;
+				}
 
-					if (fs::is_directory(filename))
-						check_sub_directory(filename, false);
+				notify.path_ = filename;
 
-					notify.path_ = filename;
+				if (ev->mask & IN_MOVED_FROM)
+				{
+					if (ev->mask & IN_ISDIR)
+					{
+						LOG_DBG << "IN_MOVED_FROM remove_directory, path: " << filename;
+						remove_directory(filename);
+					}
 
 					m_bufs_pending.erase(0, sizeof(inotify_event) + ev->len);
 					if (m_bufs_pending.size() <= sizeof(inotify_event))
 						break;
 
 					ev = (const inotify_event*)(m_bufs_pending.data());
-				}
+					LOG_DBG << "inotify_event, IN_MOVED_FROM name: " << ev->name << ", mask: " << ev->mask;
 
-				if (ev->mask == IN_MOVED_TO)
-				{
 					fdir = find_dir(ev->wd);
 					if (fdir)
 						filename = *fdir / ev->name;
 					else
 						filename = ev->name;
+				}
 
+				if (ev->mask & IN_MOVED_TO)
+				{
 					notify.new_path_ = filename;
-				}
-				else
-				{
-					fdir = find_dir(ev->wd);
-					if (fdir)
-						filename = *fdir / ev->name;
-					else
-						filename = ev->name;
+
+					if (ev->mask & IN_ISDIR)
+					{
+						LOG_DBG << "IN_MOVED_TO, add_directory, path: " << filename;
+						add_directory(filename);
+					}
 				}
 
 				if (add)
 				{
-					if (fdir)
-						add_directory(filename);
+					LOG_DBG << "ADD add_directory, path: " << filename;
+					add_directory(filename);
 				}
-				else if (ev->mask == IN_DELETE | IN_ISDIR)
+				else if (ev->mask == (IN_DELETE | IN_ISDIR))
 				{
-					check_sub_directory(filename, false);
+					LOG_DBG << "IN_DELETE remove_directory, deldir path: " << filename;
+					remove_directory(filename);
 				}
 
 				result.push_back(notify);
@@ -244,8 +268,12 @@ namespace watchman {
 			return {};
 		}
 
-		inline void add_directory(const fs::path& dir)
+		inline void add_directory(const fs::path& dir) noexcept
 		{
+			boost::system::error_code ignore_ec;
+			if (!fs::is_directory(dir, ignore_ec))
+				return;
+
 			auto wd = inotify_add_watch(
 				this->native_handle(),
 				dir.string().c_str(),
@@ -255,58 +283,47 @@ namespace watchman {
 				IN_MOVED_TO |
 				IN_DELETE);
 
-			if (wd < 0)
-			{
-				boost::system::error_code ec(errno,
-					boost::system::system_category());
-
-				boost::throw_exception(
-					boost::system::system_error{ ec }, BOOST_CURRENT_LOCATION);
-			}
-
+			LOG_DBG << "add_directory, dir: " << dir << ", wd: " << wd;
 			if (wd >= 0)
 			{
 				m_watch_descriptors.insert(
 					watch_descriptors::value_type(wd, dir));
-
-				check_sub_directory(dir, true);
 			}
 		}
 
-		inline void remove_directory(const fs::path& dir)
+		inline void remove_directory(const fs::path& dir) noexcept
 		{
 			auto it = m_watch_descriptors.right.find(dir);
 			if (it != m_watch_descriptors.right.end())
 			{
+				LOG_DBG << "remove_directory, inotify_rm_watch path: " << dir;
 				inotify_rm_watch(this->native_handle(), it->second);
 				m_watch_descriptors.right.erase(it);
 
-				check_sub_directory(dir, false);
+				try {
+					remove_sub_directory(dir);
+				} catch (const std::exception&) {
+				}
 			}
 		}
 
-		inline void check_sub_directory(const fs::path& dir, bool add)
+		inline void remove_sub_directory(const fs::path& dir)
+		{
+			fs::directory_iterator end;
+			for (fs::directory_iterator it(dir); it != end; ++it)
+				remove_directory(*it);
+		}
+
+		inline void add_sub_directory(const fs::path& dir)
 		{
 			fs::directory_iterator end;
 			for (fs::directory_iterator it(dir); it != end; ++it)
 			{
-				if (fs::is_directory(*it))
+				boost::system::error_code ignore_ec;
+				if (fs::is_directory(*it, ignore_ec))
 				{
-					if (add)
-					{
-						try
-						{
-							add_directory(*it);
-						}
-						catch (const std::exception&)
-						{
-							continue;
-						}
-					}
-					else
-					{
-						remove_directory(*it);
-					}
+					add_directory(*it);
+					add_sub_directory(*it);
 				}
 			}
 		}
