@@ -14,6 +14,7 @@
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/posix/stream_descriptor.hpp>
+#include <boost/asio/associated_cancellation_slot.hpp>
 
 #include <boost/filesystem.hpp>
 #include <boost/bimap.hpp>
