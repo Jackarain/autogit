@@ -56,6 +56,7 @@ namespace watchman {
 					OPEN_EXISTING,
 					FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
 					nullptr))
+			, m_watch_dir(dir)
 		{
 		}
 
@@ -69,6 +70,8 @@ namespace watchman {
 
 		inline void open(const fs::path& dir, boost::system::error_code& ec)
 		{
+			m_watch_dir = dir;
+
 			if (this->is_open())
 				this->close();
 
@@ -86,6 +89,7 @@ namespace watchman {
 		inline void open(const fs::path& dir)
 		{
 			boost::system::error_code ec;
+			m_watch_dir = dir;
 			open(dir, ec);
 			throw_error(ec);
 		}
@@ -194,38 +198,30 @@ namespace watchman {
 		inline void convert_result(uint8_t* data, notify_events& result) const
 		{
 			auto item = (PFILE_NOTIFY_INFORMATION)data;
-
-			auto&& e = notify_event{
-				.type_ = notify_type(item->Action),
-				.path_ = std::wstring_view{item->FileName, item->FileNameLength / 2 }
-			};
+			notify_event e;
 
 			for (;;)
 			{
 				if (item->Action == FILE_ACTION_RENAMED_OLD_NAME)
 				{
-					if (item->NextEntryOffset == 0)
-					{
-						result.emplace_back(e);
-						break;
-					}
+					e.type_ = notify_type(item->Action);
+					e.path_ = m_watch_dir / std::wstring_view{ item->FileName, item->FileNameLength / 2 };
 
-					item = (PFILE_NOTIFY_INFORMATION)((uint8_t*)item + item->NextEntryOffset);
-					e.new_path_ = std::wstring_view{item->FileName, item->FileNameLength / 2 };
-
-					result.emplace_back(e);
+					if (item->NextEntryOffset != 0)
+						item = (PFILE_NOTIFY_INFORMATION)((uint8_t*)item + item->NextEntryOffset);
 				}
-				else if (item->Action == FILE_ACTION_RENAMED_NEW_NAME)
+				if (item->Action == FILE_ACTION_RENAMED_NEW_NAME)
 				{
-					e.new_path_ = e.path_;
-					e.path_.clear();
-
-					result.emplace_back(e);
+					e.new_path_ = m_watch_dir / std::wstring_view{ item->FileName, item->FileNameLength / 2 };
 				}
 				else
 				{
-					result.emplace_back(e);
+					e.type_ = notify_type(item->Action);
+					e.path_ = m_watch_dir / std::wstring_view{ item->FileName, item->FileNameLength / 2 };
 				}
+
+				result.emplace_back(e);
+				e = {};
 
 				if (item->NextEntryOffset == 0)
 					break;
@@ -240,6 +236,10 @@ namespace watchman {
 			if (err)
 				boost::throw_exception(boost::system::system_error{ err }, loc);
 		}
+
+
+	private:
+		fs::path m_watch_dir;
 	};
 
 	using windows_watch = windows_watch_service<>;
