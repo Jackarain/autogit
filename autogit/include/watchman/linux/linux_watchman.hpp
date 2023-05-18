@@ -174,8 +174,6 @@ namespace watchman {
 				const inotify_event* ev =
 					(const inotify_event*)(m_bufs_pending.data());
 
-				LOG_DBG << "inotify_event, mask: " << ev->mask << ", name: " << ev->name;
-
 				if (ev->mask == IN_IGNORED)
 				{
 					m_bufs_pending.erase(0, sizeof(inotify_event) + ev->len);
@@ -189,38 +187,22 @@ namespace watchman {
 
 				std::optional<fs::path> fdir = find_dir(ev->wd);
 				if (fdir)
-				{
 					filename = *fdir / ev->name;
-					LOG_DBG << "fdir: " << *fdir
-						<< ", fullpath: " << filename
-						<< ", wd: " << ev->wd
-						<< ", mask: " << ev->mask;
-				}
 				else
-				{
 					filename = ev->name;
-					LOG_DBG << "fdir is nullptr, path: "
-						<< filename
-						<< ", wd: " << ev->wd
-						<< ", mask: " << ev->mask;
-				}
 
 				notify.path_ = filename;
 
 				if (ev->mask & IN_MOVED_FROM)
 				{
 					if (ev->mask & IN_ISDIR)
-					{
-						LOG_DBG << "IN_MOVED_FROM remove_directory, path: " << filename;
 						remove_directory(filename);
-					}
 
 					m_bufs_pending.erase(0, sizeof(inotify_event) + ev->len);
 					if (m_bufs_pending.size() <= sizeof(inotify_event))
 						break;
 
 					ev = (const inotify_event*)(m_bufs_pending.data());
-					LOG_DBG << "inotify_event, IN_MOVED_FROM name: " << ev->name << ", mask: " << ev->mask;
 
 					fdir = find_dir(ev->wd);
 					if (fdir)
@@ -234,22 +216,13 @@ namespace watchman {
 					notify.new_path_ = filename;
 
 					if (ev->mask & IN_ISDIR)
-					{
-						LOG_DBG << "IN_MOVED_TO, add_directory, path: " << filename;
 						add_directory(filename);
-					}
 				}
 
 				if (add)
-				{
-					LOG_DBG << "ADD add_directory, path: " << filename;
 					add_directory(filename);
-				}
 				else if (ev->mask == (IN_DELETE | IN_ISDIR))
-				{
-					LOG_DBG << "IN_DELETE remove_directory, deldir path: " << filename;
 					remove_directory(filename);
-				}
 
 				result.push_back(notify);
 				notify = {};
@@ -283,7 +256,6 @@ namespace watchman {
 				IN_MOVED_TO |
 				IN_DELETE);
 
-			LOG_DBG << "add_directory, dir: " << dir << ", wd: " << wd;
 			if (wd >= 0)
 			{
 				m_watch_descriptors.insert(
@@ -296,7 +268,6 @@ namespace watchman {
 			auto it = m_watch_descriptors.right.find(dir);
 			if (it != m_watch_descriptors.right.end())
 			{
-				LOG_DBG << "remove_directory, inotify_rm_watch path: " << dir;
 				inotify_rm_watch(this->native_handle(), it->second);
 				m_watch_descriptors.right.erase(it);
 
