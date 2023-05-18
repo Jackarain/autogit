@@ -254,6 +254,10 @@ int gitwork(gitpp::repo& repo)
 			tree,
 			parent);
 	}
+	else if (!global_force_push)
+	{
+		return EXIT_FAILURE;
+	}
 
 	gitpp::remote remote = repo.get_remote("origin");
 
