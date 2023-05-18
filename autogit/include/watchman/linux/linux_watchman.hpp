@@ -144,6 +144,7 @@ namespace watchman {
 			case IN_CREATE:
 				return event_type::creation;
 			case IN_DELETE:
+			case IN_DELETE | IN_ISDIR:
 				return event_type::deletion;
 			case IN_MODIFY:
 				return event_type::modification;
@@ -171,25 +172,60 @@ namespace watchman {
 				const inotify_event* ev =
 					(const inotify_event*)(m_bufs_pending.data());
 
+				fs::path filename;
 				bool add = false;
+
 				notify.type_ = notify_type(ev->mask, add);
 
-				fs::path filename;
-				auto fdir = find_dir(ev->wd);
-				if (fdir)
-					filename = *fdir / ev->name;
+				if (ev->mask == IN_MOVED_FROM)
+				{
+					auto fdir = find_dir(ev->wd);
+					if (fdir)
+						filename = *fdir / ev->name;
+					else
+						filename = ev->name;
+
+					notify.path_ = filename;
+
+					m_bufs_pending.erase(0, sizeof(inotify_event) + ev->len);
+					if (m_bufs_pending.size() <= sizeof(inotify_event))
+						break;
+
+					ev = (const inotify_event*)(m_bufs_pending.data());
+				}
+
+				if (ev->mask == IN_MOVED_TO)
+				{
+					auto fdir = find_dir(ev->wd);
+					if (fdir)
+						filename = *fdir / ev->name;
+					else
+						filename = ev->name;
+
+					notify.new_path_ = filename;
+				}
 				else
-					filename = ev->name;
+				{
+					auto fdir = find_dir(ev->wd);
+					if (fdir)
+						filename = *fdir / ev->name;
+					else
+						filename = ev->name;
+				}
 
 				if (add)
 				{
 					if (fdir)
 						add_directory(filename);
 				}
-
-				notify.path_ = filename;
+				else if (ev->mask == IN_DELETE | IN_ISDIR)
+				{
+					check_sub_directory(filename, false);
+				}
 
 				result.push_back(notify);
+				notify = {};
+
 				m_bufs_pending.erase(0, sizeof(inotify_event) + ev->len);
 			}
 		}
