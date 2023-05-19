@@ -11,7 +11,13 @@ set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} -DENABLE_LOGGER -D
 file(GLOB watchman_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/watchman/notify_event.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/watchman/watchman.hpp
+)
+
+file(GLOB watchman_windows_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/watchman/windows/windows_watchman.hpp
+)
+
+file(GLOB watchman_linux_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/watchman/linux/linux_watchman.hpp
 )
 
@@ -28,6 +34,8 @@ file(GLOB autogit_SRCS
 add_executable(autogit
 	${autogit_HEADERS}
 	${watchman_HEADERS}
+	${watchman_windows_HEADERS}
+	${watchman_linux_HEADERS}
 	${autogit_SRCS}
 	)
 
@@ -42,6 +50,10 @@ endif()
 if (HAVE_GETIFADDRS)
 	target_compile_definitions(autogit PUBLIC HAVE_GETIFADDRS)
 endif()
+
+source_group("Header Files/watchman" FILES ${watchman_HEADERS})
+source_group("Header Files/watchman/windows" FILES ${watchman_windows_HEADERS})
+source_group("Header Files/watchman/linux" FILES ${watchman_linux_HEADERS})
 
 if (MSVC AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 19.29.30129 AND CMAKE_VERSION VERSION_GREATER 3.20.3)
 	set_property(TARGET autogit PROPERTY CXX_STANDARD 23)
