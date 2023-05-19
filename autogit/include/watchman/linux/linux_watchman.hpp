@@ -37,6 +37,7 @@ namespace watchman {
 	namespace net = boost::asio;
 	namespace fs = boost::filesystem;
 
+	inline const size_t read_buffer_size = 8192;
 	template <typename Executor = net::any_io_executor>
 	class linux_watch_service : public net::posix::basic_stream_descriptor<Executor>
 	{
@@ -48,13 +49,13 @@ namespace watchman {
 		linux_watch_service(const Executor& ex, const fs::path& dir)
 			: net::posix::basic_stream_descriptor<Executor>(ex)
 			, m_watch_dir(dir)
-			, m_bufs(std::make_unique<std::array<char, 8192>>())
+			, m_bufs(std::make_unique<std::array<char, read_buffer_size>>())
 		{
 			open(dir);
 		}
 		explicit linux_watch_service(const Executor& ex)
 			: net::posix::basic_stream_descriptor<Executor>(ex)
-			, m_bufs(std::make_unique<std::array<char, 8192>>())
+			, m_bufs(std::make_unique<std::array<char, read_buffer_size>>())
 		{}
 		~linux_watch_service() = default;
 
@@ -104,7 +105,7 @@ namespace watchman {
 		template <typename Handler>
 		void start_op(Handler&& handler)
 		{
-			std::memset(m_bufs.get(), 0, 8192);
+			std::memset(m_bufs.get(), 0, read_buffer_size);
 
 			auto slot = net::get_associated_cancellation_slot(handler);
 			if (slot.is_connected())
@@ -119,7 +120,7 @@ namespace watchman {
 				});
 			}
 
-			this->async_read_some(net::buffer(m_bufs.get(), 8192),
+			this->async_read_some(net::buffer(m_bufs.get(), read_buffer_size),
 				[this, handler = std::move(handler)](
 					boost::system::error_code ec,
 					std::size_t bytes_transferred) mutable
@@ -303,7 +304,7 @@ namespace watchman {
 		fs::path m_watch_dir;
 		using watch_descriptors = boost::bimap<int, fs::path>;
 		watch_descriptors m_watch_descriptors;
-		std::unique_ptr<std::array<char, 8192>> m_bufs;
+		std::unique_ptr<std::array<char, read_buffer_size>> m_bufs;
 		std::string m_bufs_pending;
 	};
 
