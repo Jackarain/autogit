@@ -61,7 +61,7 @@ namespace watchman {
 		linux_watch_service(linux_watch_service&&) = default;
 		linux_watch_service& operator=(linux_watch_service&&) = default;
 
-		inline void open(const fs::path& dir, boost::system::error_code& ec)
+		void open(const fs::path& dir, boost::system::error_code& ec)
 		{
 			this->close(ec);
 
@@ -72,7 +72,7 @@ namespace watchman {
 			add_sub_directory(dir);
 		}
 
-		inline void open(const fs::path& dir)
+		void open(const fs::path& dir)
 		{
 			this->close();
 
@@ -139,7 +139,7 @@ namespace watchman {
 				});
 		}
 
-		inline event_type notify_type(uint32_t action, bool& add) const
+		event_type notify_type(uint32_t action, bool& add) const
 		{
 			switch (action)
 			{
@@ -163,7 +163,7 @@ namespace watchman {
 			return event_type::unknown;
 		}
 
-		inline void convert_result(std::string_view sv, notify_events& result)
+		void convert_result(std::string_view sv, notify_events& result)
 		{
 			notify_event notify;
 
@@ -231,7 +231,7 @@ namespace watchman {
 			}
 		}
 
-		inline std::optional<fs::path> find_dir(int wd)
+		std::optional<fs::path> find_dir(int wd)
 		{
 			auto it = m_watch_descriptors.left.find(wd);
 
@@ -241,7 +241,7 @@ namespace watchman {
 			return {};
 		}
 
-		inline void add_directory(const fs::path& dir) noexcept
+		void add_directory(const fs::path& dir) noexcept
 		{
 			boost::system::error_code ignore_ec;
 			if (!fs::is_directory(dir, ignore_ec))
@@ -263,7 +263,7 @@ namespace watchman {
 			}
 		}
 
-		inline void remove_directory(const fs::path& dir) noexcept
+		void remove_directory(const fs::path& dir) noexcept
 		{
 			auto it = m_watch_descriptors.right.find(dir);
 			if (it != m_watch_descriptors.right.end())
@@ -278,14 +278,14 @@ namespace watchman {
 			}
 		}
 
-		inline void remove_sub_directory(const fs::path& dir)
+		void remove_sub_directory(const fs::path& dir)
 		{
 			fs::directory_iterator end;
 			for (fs::directory_iterator it(dir); it != end; ++it)
 				remove_directory(*it);
 		}
 
-		inline void add_sub_directory(const fs::path& dir)
+		void add_sub_directory(const fs::path& dir)
 		{
 			fs::directory_iterator end;
 			for (fs::directory_iterator it(dir); it != end; ++it)

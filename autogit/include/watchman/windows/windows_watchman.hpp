@@ -69,7 +69,7 @@ namespace watchman {
 		windows_watch_service(windows_watch_service&&) = default;
 		windows_watch_service& operator=(windows_watch_service&&) = default;
 
-		inline void open(const fs::path& dir, boost::system::error_code& ec)
+		void open(const fs::path& dir, boost::system::error_code& ec)
 		{
 			m_watch_dir = dir;
 
@@ -87,7 +87,7 @@ namespace watchman {
 			this->assign(h, ec);
 		}
 
-		inline void open(const fs::path& dir)
+		void open(const fs::path& dir)
 		{
 			boost::system::error_code ec;
 			m_watch_dir = dir;
@@ -187,7 +187,7 @@ namespace watchman {
 			}
 		}
 
-		inline event_type notify_type(DWORD action) const
+		event_type notify_type(DWORD action) const
 		{
 			switch (action)
 			{
@@ -207,7 +207,7 @@ namespace watchman {
 			return event_type::unknown;
 		}
 
-		inline void convert_result(uint8_t* data, notify_events& result) const
+		void convert_result(uint8_t* data, notify_events& result) const
 		{
 			auto item = (PFILE_NOTIFY_INFORMATION)data;
 			notify_event e;
@@ -244,7 +244,7 @@ namespace watchman {
 			}
 		}
 
-		inline void throw_error(const boost::system::error_code& err,
+		void throw_error(const boost::system::error_code& err,
 			boost::source_location const& loc = BOOST_CURRENT_LOCATION)
 		{
 			if (err)
