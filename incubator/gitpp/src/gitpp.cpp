@@ -439,11 +439,20 @@ gitpp::blob gitpp::repo::get_blob(gitpp::oid blob_id) const
 	return blob(cblob);
 }
 
-bool gitpp::init_git_repo(std::filesystem::path repo_path, bool bare/* = false*/)
+bool gitpp::init_git_repo(std::filesystem::path repo_path,
+	const std::string& url/* = ""*/, bool bare/* = false*/)
 {
-	git_repository * repo = nullptr;
+	git_repository* repo = nullptr;
 
-	int ret = git_repository_init(&repo, repo_path.string().c_str(), bare);
+	git_repository_init_options opts = GIT_REPOSITORY_INIT_OPTIONS_INIT;
+
+	opts.flags = GIT_REPOSITORY_INIT_MKPATH; /* don't love this default */
+	if (bare)
+		opts.flags |= GIT_REPOSITORY_INIT_BARE;
+
+	opts.origin_url = url.c_str();
+
+	int ret = git_repository_init_ext(&repo, repo_path.string().c_str(), &opts);
 	git_repository_free(repo);
 
 	return ret == 0;

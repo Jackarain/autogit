@@ -320,6 +320,6 @@ namespace gitpp {
 	};
 
 	bool is_git_repo(std::filesystem::path);
-	bool init_git_repo(std::filesystem::path repo_path, bool bare = false);
-
+	bool init_git_repo(std::filesystem::path repo_path,
+		const std::string& url = "", bool bare = false);
 }
