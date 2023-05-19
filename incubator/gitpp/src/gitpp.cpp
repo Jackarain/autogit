@@ -116,70 +116,70 @@ gitpp::tree::tree_iterator gitpp::tree::end() const
 }
 
 gitpp::tree::tree_iterator::tree_iterator(const tree* parent, std::size_t index)
-	: parent(parent)
-	, index(index)
+	: parent_(parent)
+	, index_(index)
 {
 }
 
 gitpp::tree::tree_iterator& gitpp::tree::tree_iterator::operator++()
 {
-	++ index;
+	++ index_;
 	return *this;
 }
 
 gitpp::tree_entry gitpp::tree::tree_iterator::operator*()
 {
-	return tree_entry(git_tree_entry_byindex(parent->native_handle(), index));
+	return tree_entry(git_tree_entry_byindex(parent_->native_handle(), index_));
 }
 
 gitpp::tree_entry::tree_entry(const git_tree_entry* entry)
-  : entry(const_cast<git_tree_entry*>(entry)), owned(false)
+  : entry_(const_cast<git_tree_entry*>(entry)), owned_(false)
 {
 
 }
 
 gitpp::tree_entry::tree_entry(git_tree_entry* entry)
-  : entry(entry), owned(true)
+  : entry_(entry), owned_(true)
 {
 }
 
 gitpp::tree_entry::~tree_entry()
 {
-	if (owned && entry)
-		git_tree_entry_free(entry);
+	if (owned_ && entry_)
+		git_tree_entry_free(entry_);
 }
 
 gitpp::tree_entry::tree_entry(tree_entry&& other)
-	: entry(other.entry)
-	, owned(other.owned)
+	: entry_(other.entry_)
+	, owned_(other.owned_)
 {
-	other.owned = false;
+	other.owned_ = false;
 }
 
 gitpp::tree_entry::tree_entry(const tree_entry& other)
-	: entry(other.entry)
+	: entry_(other.entry_)
 {
-	owned = false;
+	owned_ = false;
 }
 
 bool gitpp::tree_entry::empty() const
 {
-	return entry == nullptr;
+	return entry_ == nullptr;
 }
 
 gitpp::oid gitpp::tree_entry::get_oid() const
 {
-	return oid(git_tree_entry_id(entry));
+	return oid(git_tree_entry_id(entry_));
 }
 
 git_object_t gitpp::tree_entry::type() const
 {
-	return git_tree_entry_type(entry);
+	return git_tree_entry_type(entry_);
 }
 
 std::string gitpp::tree_entry::name() const
 {
-	return git_tree_entry_name(entry);
+	return git_tree_entry_name(entry_);
 }
 
 
@@ -248,43 +248,43 @@ gitpp::oid gitpp::oid::from_sha1_string(std::string_view s)
 }
 
 gitpp::status_list::status_list(git_status_list* _status_list)
-	: _status_list(_status_list)
+	: status_list_(_status_list)
 {}
 
 gitpp::status_list::~status_list()
 {
-	git_status_list_free(_status_list);
+	git_status_list_free(status_list_);
 }
 
 git_status_list* gitpp::status_list::native_handle()
 {
-	return _status_list;
+	return status_list_;
 }
 
 const git_status_list* gitpp::status_list::native_handle() const
 {
-	return _status_list;
+	return status_list_;
 }
 
 gitpp::status_list::git_status_entry_iterator::git_status_entry_iterator(status_list& parent, std::size_t idx)
-	: parent(parent)
-	, idx(idx)
+	: parent_(parent)
+	, idx_(idx)
 {}
 
 const git_status_entry* gitpp::status_list::git_status_entry_iterator::operator*()
 {
-	return git_status_byindex(parent.native_handle(), idx);
+	return git_status_byindex(parent_.native_handle(), idx_);
 }
 
  gitpp::status_list::git_status_entry_iterator& gitpp::status_list::git_status_entry_iterator::operator++()
 {
-	idx ++;
+	idx_ ++;
 	return *this;
 }
 
 bool gitpp::status_list::git_status_entry_iterator::operator==(const git_status_entry_iterator & other) const
 {
-	return (&parent == &other.parent) && (this->idx == other.idx);
+	return (&parent_ == &other.parent_) && (this->idx_ == other.idx_);
 }
 
 gitpp::status_list::git_status_entry_iterator gitpp::status_list::begin()
@@ -299,23 +299,23 @@ gitpp::status_list::git_status_entry_iterator gitpp::status_list::end()
 
 std::size_t gitpp::status_list::size() const
 {
-	return git_status_list_entrycount(_status_list);
+	return git_status_list_entrycount(status_list_);
 }
 
 gitpp::index::index(gitpp::repo* belong, git_index* i)
-	: belong(belong)
-	, _index(i)
+	: belong_(belong)
+	, index_(i)
 {
 }
 
 gitpp::index::~index()
 {
-	git_index_free(_index);
+	git_index_free(index_);
 }
 
 git_index* gitpp::index::native_handle()
 {
-	return _index;
+	return index_;
 }
 
 gitpp::tree gitpp::index::write_tree()
@@ -326,62 +326,62 @@ gitpp::tree gitpp::index::write_tree()
 		throw gitpp::exception::error();
 	}
 
-	return belong->get_tree_by_treeid(tree_id);
+	return belong_->get_tree_by_treeid(tree_id);
 }
 
 gitpp::remote::remote(git_remote* _r)
-	: _git_remote(_r)
+	: git_remote_(_r)
 {}
 
 gitpp::remote::remote(const gitpp::remote& other)
 {
-	git_remote_dup(&_git_remote, other._git_remote);
+	git_remote_dup(&git_remote_, other.git_remote_);
 }
 
 gitpp::remote::remote(gitpp::remote&& other)
-	: _git_remote(other._git_remote)
+	: git_remote_(other.git_remote_)
 {
-	other._git_remote = nullptr;
+	other.git_remote_ = nullptr;
 }
 
 gitpp::remote::~remote()
 {
-	if (_git_remote)
-		git_remote_free(_git_remote);
+	if (git_remote_)
+		git_remote_free(git_remote_);
 }
 
 gitpp::remote& gitpp::remote::operator=(const gitpp::remote& other)
 {
-	if (_git_remote)
-		git_remote_free(_git_remote);
-	git_remote_dup(&_git_remote, other._git_remote);
+	if (git_remote_)
+		git_remote_free(git_remote_);
+	git_remote_dup(&git_remote_, other.git_remote_);
 	return *this;
 }
 
 gitpp::remote& gitpp::remote::operator=(gitpp::remote&& other)
 {
-	if (_git_remote)
-		git_remote_free(_git_remote);
-	_git_remote = other._git_remote;
-	other._git_remote = nullptr;
+	if (git_remote_)
+		git_remote_free(git_remote_);
+	git_remote_ = other.git_remote_;
+	other.git_remote_ = nullptr;
 	return *this;
 }
 
 git_remote* gitpp::remote::native_handle()
 {
-	return _git_remote;
+	return git_remote_;
 }
 
 gitpp::index gitpp::repo::get_index()
 {
-	git_index * _index = nullptr;
-	git_repository_index(&_index, native_handle());
-	return gitpp::index(this, _index);
+	git_index* index = nullptr;
+	git_repository_index(&index, native_handle());
+	return gitpp::index(this, index);
 }
 
 gitpp::status_list gitpp::repo::new_status_list()
 {
-	git_status_list * _status_list;
+	git_status_list* _status_list;
 	git_status_list_new(&_status_list, native_handle(), nullptr);
 	return gitpp::status_list(_status_list);
 }
@@ -396,12 +396,12 @@ gitpp::reference gitpp::repo::head() const
 
 gitpp::remote gitpp::repo::get_remote(const std::string& name)
 {
-	git_remote * _remote;
-	if (git_remote_lookup(&_remote, native_handle(), name.c_str()) != 0)
+	git_remote* remote;
+	if (git_remote_lookup(&remote, native_handle(), name.c_str()) != 0)
 	{
 		throw gitpp::exception::error();
 	}
-	return gitpp::remote(_remote);
+	return gitpp::remote(remote);
 }
 
 gitpp::commit gitpp::repo::lookup_commit(oid commitid)
@@ -442,8 +442,6 @@ gitpp::blob gitpp::repo::get_blob(gitpp::oid blob_id) const
 bool gitpp::init_git_repo(std::filesystem::path repo_path,
 	const std::string& url/* = ""*/, bool bare/* = false*/)
 {
-	git_repository* repo = nullptr;
-
 	git_repository_init_options opts = GIT_REPOSITORY_INIT_OPTIONS_INIT;
 
 	opts.flags = GIT_REPOSITORY_INIT_MKPATH; /* don't love this default */
@@ -451,7 +449,9 @@ bool gitpp::init_git_repo(std::filesystem::path repo_path,
 		opts.flags |= GIT_REPOSITORY_INIT_BARE;
 
 	opts.origin_url = url.c_str();
+	opts.initial_head = "master";
 
+	git_repository* repo = nullptr;
 	int ret = git_repository_init_ext(&repo, repo_path.string().c_str(), &opts);
 	git_repository_free(repo);
 
@@ -459,42 +459,47 @@ bool gitpp::init_git_repo(std::filesystem::path repo_path,
 }
 
 gitpp::reference::reference(git_reference* ref)
-	: ref(ref), owned(true)
+	: ref_(ref), owned_(true)
 {
 }
 
+bool gitpp::reference::operator==(const reference& other) const
+{
+	return this->ref_ == other.ref_;
+}
+
 gitpp::reference::reference(const git_reference* ref)
-	: ref(const_cast<git_reference*>(ref)), owned(false)
+	: ref_(const_cast<git_reference*>(ref)), owned_(false)
 {
 }
 
 gitpp::reference::reference(const gitpp::reference& other)
-	: ref(nullptr), owned(true)
+	: ref_(nullptr), owned_(true)
 {
-	git_reference_dup(&ref, other.ref);
+	git_reference_dup(&ref_, other.ref_);
 }
 
 gitpp::reference::reference(gitpp::reference&& other)
-	: ref(other.ref), owned(other.owned)
+	: ref_(other.ref_), owned_(other.owned_)
 {
-	other.owned = false;
+	other.owned_ = false;
 }
 
 gitpp::reference::~reference()
 {
-	if (owned)
-		git_reference_free(ref);
+	if (owned_)
+		git_reference_free(ref_);
 }
 
 git_reference_t gitpp::reference::type() const
 {
-	return git_reference_type(ref);
+	return git_reference_type(ref_);
 }
 
 gitpp::reference gitpp::reference::resolve() const
 {
 	git_reference* out = nullptr;
-	if (0 == git_reference_resolve(&out, ref))
+	if (0 == git_reference_resolve(&out, ref_))
 		return reference(out);
 	throw exception::resolve_failed();
 }
@@ -503,7 +508,7 @@ gitpp::oid gitpp::reference::target() const
 {
 	if (type() == GIT_REFERENCE_DIRECT)
 	{
-		const git_oid* tgt = git_reference_target(ref);
+		const git_oid* tgt = git_reference_target(ref_);
 		if (tgt == nullptr)
 			throw exception::resolve_failed{};
 		return oid(tgt);
@@ -511,6 +516,7 @@ gitpp::oid gitpp::reference::target() const
 	return resolve().target();
 }
 
+#if 0
 gitpp::buf::buf(git_buf* b) noexcept
 {
 	memcpy(&buf_, b, sizeof buf_);
@@ -530,21 +536,22 @@ gitpp::buf::operator std::string_view() noexcept
 {
 	return std::string_view(buf_.ptr, buf_.size);
 }
+#endif
 
 gitpp::signature::signature(const gitpp::signature& other)
 {
-	git_signature_dup(&_git_sig, other.native_handle());
+	git_signature_dup(&git_sig_, other.native_handle());
 }
 
 gitpp::signature::signature(gitpp::signature&& other)
-	: _git_sig(other._git_sig)
+	: git_sig_(other.git_sig_)
 {
-	other._git_sig = nullptr;
+	other.git_sig_ = nullptr;
 }
 
 gitpp::signature::signature(const std::string& name,  const std::string& email)
 {
-	if (git_signature_now(&_git_sig, name.c_str(), email.c_str()) != 0)
+	if (git_signature_now(&git_sig_, name.c_str(), email.c_str()) != 0)
 	{
 		throw gitpp::exception::error();
 	}
@@ -552,33 +559,33 @@ gitpp::signature::signature(const std::string& name,  const std::string& email)
 
 git_signature* gitpp::signature::native_handle()
 {
-	return _git_sig;
+	return git_sig_;
 }
 
 const git_signature* gitpp::signature::native_handle() const
 {
-	return _git_sig;
+	return git_sig_;
 }
 
 gitpp::signature::~signature()
 {
-	if (_git_sig)
-		git_signature_free(_git_sig);
+	if (git_sig_)
+		git_signature_free(git_sig_);
 }
 
 gitpp::signature& gitpp::signature::operator = (const signature& other)
 {
-	git_signature_free(_git_sig);
-	git_signature_dup(&_git_sig, other.native_handle());
+	git_signature_free(git_sig_);
+	git_signature_dup(&git_sig_, other.native_handle());
 	return *this;
 }
 
 gitpp::signature& gitpp::signature::operator = (signature&& other)
 {
-	if (_git_sig)
-		git_signature_free(_git_sig);
-	_git_sig = other._git_sig;
-	other._git_sig = nullptr;
+	if (git_sig_)
+		git_signature_free(git_sig_);
+	git_sig_ = other.git_sig_;
+	other.git_sig_ = nullptr;
 	return *this;
 }
 

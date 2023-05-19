@@ -45,7 +45,6 @@ namespace gitpp {
 
 	class oid
 	{
-		git_oid oid_;
 	public:
 		const git_oid* operator & () const
 		{
@@ -68,18 +67,20 @@ namespace gitpp {
 		}
 
 		bool operator == (const oid& other) const;
-
 		oid& operator = (const oid& other);
 
 		std::string as_sha1_string() const;
-
 		static oid from_sha1_string(std::string_view);
+
+	private:
+		git_oid oid_;
 	};
 
 	class reference
 	{
-		git_reference* ref = nullptr;
-		bool owned = false;
+		git_reference* ref_ = nullptr;
+		bool owned_ = false;
+
 	public:
 		explicit reference(git_reference* ref);
 		explicit reference(const git_reference* ref);
@@ -88,33 +89,36 @@ namespace gitpp {
 		reference(reference&&);
 		reference(const reference&);
 
+		bool operator==(const reference& other) const;
+
 	public:
 		git_reference_t type() const;
 		oid target() const;
 		reference resolve() const;
 	};
 
+#if 0
 	struct buf : boost::noncopyable
 	{
 		git_buf buf_;
 
-		git_buf * operator & () noexcept
+		git_buf* operator&() noexcept
 		{
 			return &buf_;
 		}
 
-		operator std::string_view () noexcept;
-
+		operator std::string_view() noexcept;
 		explicit buf(git_buf*) noexcept;
+
 		buf() noexcept;
 		~buf() noexcept;
 	};
+#endif
 
 	class object
 	{
-	protected:
-		git_object* obj_;
 	public:
+		object() = default;
 		virtual ~object();
 
 		explicit object(git_object*);
@@ -123,13 +127,14 @@ namespace gitpp {
 
 		oid get_oid() const;
 
+	protected:
+		git_object* obj_;
 	};
 
 	class blob : public object
 	{
 	public:
 		explicit blob(git_blob*);
-
 		std::string_view get_content() const;
 		std::size_t size() const;
 	};
@@ -144,8 +149,6 @@ namespace gitpp {
 
 	class tree_entry
 	{
-		git_tree_entry * entry = nullptr;
-		bool owned = false;
 	public:
 		explicit tree_entry(const git_tree_entry*);
 		explicit tree_entry(git_tree_entry*);
@@ -158,10 +161,12 @@ namespace gitpp {
 
 	public:
 		oid get_oid() const;
-
 		git_object_t type() const;
-
 		std::string name() const;
+
+	private:
+		git_tree_entry* entry_ = nullptr;
+		bool owned_ = false;
 	};
 
 	class tree : public object
@@ -172,18 +177,18 @@ namespace gitpp {
 	public:
 		class tree_iterator
 		{
-			friend class tree;
-			const tree* parent;
-			std::size_t index;
-
-			tree_iterator(const tree* parent, std::size_t index);
-
 		public:
 			bool operator ==  (const tree_iterator & other) const = default;
-
 			tree_iterator& operator++();
-
 			tree_entry operator*();
+
+		private:
+			tree_iterator(const tree* parent, std::size_t index);
+
+		private:
+			friend class tree;
+			const tree* parent_;
+			std::size_t index_;
 		};
 
 		tree_iterator begin() const;
@@ -193,7 +198,6 @@ namespace gitpp {
 		git_tree* native_handle();
 
 		tree_entry by_path(std::string path) const;
-
 	};
 
 	class status_list : boost::noncopyable
@@ -209,8 +213,8 @@ namespace gitpp {
 
 			bool operator == (const git_status_entry_iterator&) const;
 
-			status_list & parent;
-			std::size_t idx;
+			status_list& parent_;
+			std::size_t idx_;
 		};
 
 	public:
@@ -227,7 +231,7 @@ namespace gitpp {
 		std::size_t size() const;
 
 	private:
-		git_status_list* _status_list;
+		git_status_list* status_list_;
 	};
 
 	class index : boost::noncopyable
@@ -240,8 +244,8 @@ namespace gitpp {
 		tree write_tree();
 
 	private:
-		repo* belong;
-		git_index* _index;
+		repo* belong_;
+		git_index* index_;
 	};
 
 	class signature
@@ -255,8 +259,9 @@ namespace gitpp {
 		const git_signature* native_handle() const;
 		signature& operator = (const signature&);
 		signature& operator = (signature&&);
+
 	private:
-		git_signature* _git_sig;
+		git_signature* git_sig_;
 	};
 
 	class remote
@@ -273,12 +278,11 @@ namespace gitpp {
 		git_remote* native_handle();
 
 	private:
-		git_remote* _git_remote;
+		git_remote* git_remote_;
 	};
 
 	class repo : boost::noncopyable
 	{
-		git_repository* repo_;
 	public:
 		explicit repo(git_repository*) noexcept;
 		repo(std::filesystem::path repo_dir);                   // throws not_repo
@@ -317,6 +321,8 @@ namespace gitpp {
 
 		bool is_bare() const noexcept;
 
+	private:
+		git_repository* repo_;
 	};
 
 	bool is_git_repo(std::filesystem::path);
