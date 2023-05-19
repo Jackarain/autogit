@@ -214,22 +214,24 @@ namespace watchman {
 
 			for (;;)
 			{
+				std::wstring_view filename{ item->FileName, item->FileNameLength / 2 };
+
 				if (item->Action == FILE_ACTION_RENAMED_OLD_NAME)
 				{
 					e.type_ = notify_type(item->Action);
-					e.path_ = m_watch_dir / std::wstring_view{ item->FileName, item->FileNameLength / 2 };
+					e.path_ = m_watch_dir / filename;
 
 					if (item->NextEntryOffset != 0)
 						item = (PFILE_NOTIFY_INFORMATION)((uint8_t*)item + item->NextEntryOffset);
 				}
 				if (item->Action == FILE_ACTION_RENAMED_NEW_NAME)
 				{
-					e.new_path_ = m_watch_dir / std::wstring_view{ item->FileName, item->FileNameLength / 2 };
+					e.new_path_ = m_watch_dir / filename;
 				}
 				else
 				{
 					e.type_ = notify_type(item->Action);
-					e.path_ = m_watch_dir / std::wstring_view{ item->FileName, item->FileNameLength / 2 };
+					e.path_ = m_watch_dir / filename;
 				}
 
 				result.emplace_back(e);
