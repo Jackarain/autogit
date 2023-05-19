@@ -178,7 +178,7 @@ namespace watchman {
 				{
 					m_bufs_pending.erase(0, sizeof(inotify_event) + ev->len);
 					continue;
-				}	
+				}
 
 				bool add = false;
 				notify.type_ = notify_type(ev->mask, add);
