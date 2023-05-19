@@ -104,7 +104,7 @@ namespace watchman {
 		template <typename Handler>
 		void start_op(Handler&& handler)
 		{
-			std::memset(m_bufs.get(), 0, 192);
+			std::memset(m_bufs.get(), 0, 8192);
 
 			auto slot = net::get_associated_cancellation_slot(handler);
 			if (slot.is_connected())
