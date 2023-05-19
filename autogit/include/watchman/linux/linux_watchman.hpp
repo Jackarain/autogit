@@ -52,7 +52,7 @@ namespace watchman {
 		{
 			open(dir);
 		}
-		linux_watch_service(const Executor& ex)
+		explicit linux_watch_service(const Executor& ex)
 			: net::posix::basic_stream_descriptor<Executor>(ex)
 			, m_bufs(std::make_unique<std::array<char, 8192>>())
 		{}

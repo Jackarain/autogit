@@ -61,7 +61,7 @@ namespace watchman {
 		{
 		}
 
-		windows_watch_service(const Executor& ex)
+		explicit windows_watch_service(const Executor& ex)
 			: net::windows::basic_overlapped_handle<Executor>(ex)
 		{}
 		~windows_watch_service() = default;
