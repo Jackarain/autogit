@@ -85,7 +85,7 @@ std::string global_ssh_passphrase;
 std::string global_git_author;
 std::string global_git_email;
 
-std::string global_git_url;
+std::string global_git_remote_url;
 
 int certificate_check_cb(git_cert *cert,
 	int valid,
@@ -241,20 +241,40 @@ int gitwork(gitpp::repo& repo)
 
 		gitpp::tree tree = index.write_tree();
 
-		// 获取当前的 HEAD 提交作为父提交
-		gitpp::oid parent_id = repo.head().target();
-		gitpp::commit parent = repo.lookup_commit(parent_id);
+		// 当一个新仓库刚创建时 HEAD 并没有指向一个有效的 Commit, 这时
+		// 强行创建一个 Commit 交将 HEAD 指向这个 Initial Commit.
+		auto head = repo.head();
+		if (head == gitpp::reference((git_reference*)nullptr))
+		{
+			git_oid commit_id;
+			gitpp::signature signature(global_git_author, global_git_email);
+			git_commit_create_v(&commit_id,
+				repo.native_handle(),
+				"HEAD",
+				signature.native_handle(),
+				signature.native_handle(),
+				nullptr,
+				global_commit_message.c_str(),
+				tree.native_handle(),
+				0);
+		}
+		else
+		{
+			// 获取当前的 HEAD 提交作为父提交.
+			gitpp::oid parent_id = head.target();
+			gitpp::commit parent = repo.lookup_commit(parent_id);
 
-		// 创建一个新的签名
-		gitpp::signature signature(global_git_author, global_git_email);
+			// 创建一个新的签名.
+			gitpp::signature signature(global_git_author, global_git_email);
 
-		// 从树对象创建一个新的提交
-		repo.create_commit("HEAD",
-			signature,
-			signature,
-			global_commit_message,
-			tree,
-			parent);
+			// 从树对象创建一个新的提交.
+			repo.create_commit("HEAD",
+				signature,
+				signature,
+				global_commit_message,
+				tree,
+				parent);
+		}
 	}
 	else if (!global_force_push)
 	{
@@ -307,14 +327,14 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 	auto executor = co_await net::this_coro::executor;
 
 	// 判断给的路径是否是一个已经存在的仓库
-	// 如果不是则创建 git 仓库, 并设置
-	// remote url.
+	// 如果不是则创建 git 仓库, 并设置仓库
+	// 的 remote url.
 	if (!gitpp::is_git_repo(git_dir))
 	{
-		if (global_git_url.empty())
+		if (global_git_remote_url.empty())
 			LOG_WARN << "git remote url is empty, please set a remote url";
 
-		gitpp::init_git_repo(git_dir, global_git_url);
+		gitpp::init_git_repo(git_dir, global_git_remote_url);
 	}
 
 	gitpp::repo repo(git_dir);
@@ -388,7 +408,7 @@ net::awaitable<int> co_main(int argc, char** argv)
 		("git_author", po::value<std::string>(&global_git_author)->default_value(""), "Author name for Git commit.")
 		("git_email", po::value<std::string>(&global_git_email)->default_value(""), "Author email for Git commit.")
 
-		("git_remote_url", po::value<std::string>(&global_git_url)->default_value(""), "Git remote url.")
+		("git_remote_url", po::value<std::string>(&global_git_remote_url)->default_value(""), "Git remote url.")
 
 		("check_interval", po::value<int>(&check_interval)->default_value(60), "Interval for Git repo checks.")
 		("quiet", po::value<bool>(&quiet)->default_value(false), "Turn off logging.")
