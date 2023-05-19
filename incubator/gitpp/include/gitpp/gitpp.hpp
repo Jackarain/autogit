@@ -1,4 +1,4 @@
-
+﻿
 #pragma once
 
 #include <cstddef>
@@ -133,7 +133,7 @@ namespace gitpp {
 		std::string_view get_content() const;
 		std::size_t size() const;
 	};
-	
+
 	class commit : public object
 	{
 	public:
@@ -295,7 +295,7 @@ namespace gitpp {
 		remote get_remote(const std::string& remote_name);
 
 		commit lookup_commit(oid);
-		
+
 		commit create_commit(const std::string& update_ref,
 			const signature& author,
 			const signature& committer,
@@ -320,6 +320,6 @@ namespace gitpp {
 	};
 
 	bool is_git_repo(std::filesystem::path);
-	bool init_bare_repo(std::filesystem::path repo_path);
+	bool init_git_repo(std::filesystem::path repo_path, bool bare = false);
 
 }

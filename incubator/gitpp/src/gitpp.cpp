@@ -1,4 +1,4 @@
-
+﻿
 #include <cstring>
 #include "gitpp/gitpp.hpp"
 #include "git2/oid.h"
@@ -439,15 +439,14 @@ gitpp::blob gitpp::repo::get_blob(gitpp::oid blob_id) const
 	return blob(cblob);
 }
 
-bool gitpp::init_bare_repo(std::filesystem::path repo_path)
+bool gitpp::init_git_repo(std::filesystem::path repo_path, bool bare/* = false*/)
 {
 	git_repository * repo = nullptr;
 
-	int lg_ret = git_repository_init(&repo, repo_path.string().c_str(), true);
+	int ret = git_repository_init(&repo, repo_path.string().c_str(), bare);
 	git_repository_free(repo);
 
-	return lg_ret == 0;
-
+	return ret == 0;
 }
 
 gitpp::reference::reference(git_reference* ref)
