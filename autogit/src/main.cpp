@@ -303,6 +303,14 @@ int gitwork(gitpp::repo& repo)
 net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir)
 {
 	auto executor = co_await net::this_coro::executor;
+
+	// 判断给的路径是否是一个已经存在的仓库
+	// 如果不是则创建 git 仓库.
+	if (gitpp::is_git_repo(git_dir))
+	{
+		gitpp::init_git_repo(git_dir);
+	}
+
 	gitpp::repo repo(git_dir);
 	watchman::watcher monitor(executor, boost::filesystem::path(git_dir));
 
