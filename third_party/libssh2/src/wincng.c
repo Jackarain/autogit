@@ -80,6 +80,10 @@
 #define STATUS_NOT_SUPPORTED ((NTSTATUS)0xC00000BB)
 #endif
 
+#ifndef max
+#define max(x, y) (((x) > (y)) ? (x) : (y))
+#endif
+
 /*******************************************************************/
 /*
  * Windows CNG backend: Missing definitions (for MinGW[-w64])
