@@ -114,11 +114,11 @@ int cred_acquire_cb(git_cred** cred,
 	{
 		auto default_sshdir =
 			std::string(get_home_dir()) +
-#ifdef _MSC_VER
+#ifdef WIN32
 			"\\.ssh\\";
 #else
 			"/.ssh/";
-#endif // _MSC_VER
+#endif // WIN32
 
 		auto public_key = default_sshdir +
 			(global_ssh_pubkey.empty() ?
