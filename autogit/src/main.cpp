@@ -48,7 +48,7 @@ namespace net = boost::asio;
 
 #ifdef _WIN32
 # include <io.h>
-# include <Windows.h>
+# include <windows.h>
 // # define open _open
 // # define read _read
 // # define close _close
