@@ -1,5 +1,4 @@
-﻿
-#pragma once
+﻿#pragma once
 
 #include <cstddef>
 #include <git2/types.h>
@@ -42,6 +41,13 @@ namespace gitpp {
 	}
 
 	class repo;
+	class oid;
+	class reference;
+	class object;
+	class blob;
+	class commit;
+	class tree;
+	class status_list;
 
 	class oid
 	{
