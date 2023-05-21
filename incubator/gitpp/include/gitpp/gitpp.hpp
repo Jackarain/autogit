@@ -36,8 +36,8 @@ namespace gitpp {
 		struct error : public std::exception
 		{
 			error();
-			virtual const char* what() const noexcept { return _e->message; }
-			const git_error * _e;
+			virtual const char* what() const noexcept { return e_->message; }
+			const git_error * e_;
 		};
 	}
 

@@ -19,7 +19,7 @@ struct auto_init_libgit2 {
 static auto_init_libgit2 ensure_libgit2_initialized;
 
 gitpp::exception::error::error()
-	: _e(git_error_last())
+	: e_(git_error_last())
 {
 }
 
