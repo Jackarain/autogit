@@ -419,7 +419,7 @@ net::awaitable<int> co_main(int argc, char** argv)
 	po::notify(vm);
 
 	// 使用 boost::program_options 库解析配置文件参数
-	if (vm.count("config"))
+	if (!config.empty() && boost::filesystem::exists(config))
 	{
 		std::ifstream ifs(config);
 		if (!ifs)
