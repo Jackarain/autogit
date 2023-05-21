@@ -386,6 +386,7 @@ net::awaitable<int> co_main(int argc, char** argv)
 {
 	std::string git_dir;
 	std::string log_dir;
+	std::string config;
 
 	int check_interval;
 	bool quiet = false;
@@ -394,6 +395,7 @@ net::awaitable<int> co_main(int argc, char** argv)
 	po::options_description desc("Options");
 	desc.add_options()
 		("help,h", "Help message.")
+		("config,c", po::value<std::string>(&config)->default_value("autogit.conf"), "Config file path.")
 		("repository", po::value<std::string>(&git_dir)->value_name("repository"), "Git repository path.")
 		("commit_msg", po::value<std::string>(&global_commit_message)->default_value("Commit by autogit"), "Git commit message.")
 		("force_push", po::value<bool>(&global_force_push)->default_value(false), "Git force push.")
@@ -424,6 +426,20 @@ net::awaitable<int> co_main(int argc, char** argv)
 		.run()
 		, vm);
 	po::notify(vm);
+
+	// 使用 boost::program_options 库解析配置文件参数
+	if (vm.count("config"))
+	{
+		std::ifstream ifs(config);
+		if (!ifs)
+		{
+			LOG_ERR << "can not open config file: " << config;
+			co_return EXIT_FAILURE;
+		}
+
+		po::store(po::parse_config_file(ifs, desc), vm);
+		po::notify(vm);
+	}
 
 	if (quiet)
 	{
