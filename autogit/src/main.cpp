@@ -49,15 +49,6 @@ namespace net = boost::asio;
 #ifdef _WIN32
 # include <io.h>
 # include <windows.h>
-// # define open _open
-// # define read _read
-// # define close _close
-// # define ssize_t int
-// # define sleep(a) Sleep(a * 1000)
-#else
-# include <unistd.h>
-# include <sys/prctl.h>
-# include <sys/resource.h>
 #endif
 
 #ifndef PRIuZ
