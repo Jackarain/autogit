@@ -51,16 +51,6 @@ namespace net = boost::asio;
 # include <windows.h>
 #endif
 
-#ifndef PRIuZ
-/* Define the printf format specifier to use for size_t output */
-#if defined(_MSC_VER) || defined(__MINGW32__)
-#	define PRIuZ "Iu"
-#else
-#	define PRIuZ "zu"
-#endif
-#endif
-
-
 //////////////////////////////////////////////////////////////////////////
 
 std::string global_commit_message;
