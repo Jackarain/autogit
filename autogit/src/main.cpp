@@ -35,6 +35,9 @@ namespace po = boost::program_options;
 
 namespace net = boost::asio;
 
+#include <boost/filesystem.hpp>
+namespace fs = boost::filesystem;
+
 //////////////////////////////////////////////////////////////////////////
 
 #include <assert.h>
@@ -307,15 +310,39 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 {
 	auto executor = co_await net::this_coro::executor;
 
-	// 判断给的路径是否是一个已经存在的仓库
-	// 如果不是则创建 git 仓库, 并设置仓库
+	// 判断给的路径是否是一个已经存在的仓库如果不是则创建 git 仓库, 并设置仓库
 	// 的 remote url.
 	if (!gitpp::is_git_repo(git_dir))
 	{
 		if (global_git_remote_url.empty())
-			LOG_WARN << "git remote url is empty, please set a remote url";
+		{
+			LOG_ERR << "git remote url is empty, please set a remote url";
+			co_return EXIT_FAILURE;
+		}
 
-		gitpp::init_git_repo(git_dir, global_git_remote_url);
+		boost::system::error_code ec;
+
+		if (!fs::exists(git_dir, ec))
+		{
+			fs::create_directories(git_dir, ec);
+			if (ec)
+			{
+				LOG_ERR << "create git dir: "
+					<< git_dir
+					<< ", err: "
+					<< ec.message();
+
+				co_return EXIT_FAILURE;
+			}
+		}
+
+		if (!gitpp::init_git_repo(git_dir, global_git_remote_url))
+		{
+			LOG_ERR << "init git repo: '"
+				<< git_dir
+				<< "' failure";
+			co_return EXIT_FAILURE;
+		}
 	}
 
 	gitpp::repo repo(git_dir);
