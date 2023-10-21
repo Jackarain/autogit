@@ -401,29 +401,34 @@ net::awaitable<int> co_main(int argc, char** argv)
 
 	// 解析命令行.
 	po::options_description desc("Options");
+
+	// General options
 	desc.add_options()
-		("help,h", "Help message.")
-		("config,c", po::value<std::string>(&config)->default_value("autogit.conf"), "Config file path.")
-		("repository", po::value<std::string>(&git_dir)->value_name("repository"), "Git repository path.")
-		("commit_msg", po::value<std::string>(&global_commit_message)->default_value("Commit by autogit"), "Git commit message.")
-		("force_push", po::value<bool>(&global_force_push)->default_value(false), "Git force push.")
+		("help,h", "Display help information.")
+		("config,c", po::value<std::string>(&config)->default_value("autogit.conf"), "Path to the configuration file.")
+		("quiet", po::value<bool>(&quiet)->default_value(false), "Mute all logging.")
+		("log_dir", po::value<std::string>(&log_dir)->value_name("path"), "Specify directory for log files.")
+		("check_interval", po::value<int>(&check_interval)->default_value(60), "Time interval (in seconds) between Git repository checks.");
 
-		("http_username", po::value<std::string>(&global_http_username)->default_value(""), "Username for HTTP auth.")
-		("http_password", po::value<std::string>(&global_http_password)->default_value(""), "Password for HTTP auth.")
+	// Git specific options
+	desc.add_options()
+		("repository", po::value<std::string>(&git_dir)->value_name("repository"), "Specify the Git repository location.")
+		("commit_msg", po::value<std::string>(&global_commit_message)->default_value("Commit by autogit"), "Set a custom commit message.")
+		("force_push", po::value<bool>(&global_force_push)->default_value(false), "Enable force push for Git commits.")
+		("git_author", po::value<std::string>(&global_git_author)->default_value(""), "Name to be used for Git commit authorship.")
+		("git_email", po::value<std::string>(&global_git_email)->default_value(""), "Email to be associated with Git commit authorship.")
+		("git_remote_url", po::value<std::string>(&global_git_remote_url)->default_value(""), "URL for the remote Git repository.");
 
-		("ssh_pubkey", po::value<std::string>(&global_ssh_pubkey)->default_value(""), "Public key for SSH auth.")
-		("ssh_privkey", po::value<std::string>(&global_ssh_privkey)->default_value(""), "Private key for SSH auth.")
-		("ssh_passphrase", po::value<std::string>(&global_ssh_passphrase)->default_value(""), "SSH key passphrase.")
+	// HTTP authentication options
+	desc.add_options()
+		("http_username", po::value<std::string>(&global_http_username)->default_value(""), "Username for HTTP authentication.")
+		("http_password", po::value<std::string>(&global_http_password)->default_value(""), "Password for HTTP authentication.");
 
-		("git_author", po::value<std::string>(&global_git_author)->default_value(""), "Author name for Git commit.")
-		("git_email", po::value<std::string>(&global_git_email)->default_value(""), "Author email for Git commit.")
-
-		("git_remote_url", po::value<std::string>(&global_git_remote_url)->default_value(""), "Git remote url.")
-
-		("check_interval", po::value<int>(&check_interval)->default_value(60), "Interval for Git repo checks.")
-		("quiet", po::value<bool>(&quiet)->default_value(false), "Turn off logging.")
-		("log_dir", po::value<std::string>(&log_dir)->value_name("path"), "Path for log files.")
-		;
+	// SSH authentication options
+	desc.add_options()
+		("ssh_pubkey", po::value<std::string>(&global_ssh_pubkey)->default_value(""), "Path to the SSH public key for authentication.")
+		("ssh_privkey", po::value<std::string>(&global_ssh_privkey)->default_value(""), "Path to the SSH private key for authentication.")
+		("ssh_passphrase", po::value<std::string>(&global_ssh_passphrase)->default_value(""), "Passphrase for the SSH key.");
 
 	po::variables_map vm;
 	po::store(
