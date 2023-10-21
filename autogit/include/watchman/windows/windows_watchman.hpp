@@ -13,17 +13,19 @@
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/async_result.hpp>
+#include <boost/asio/associated_cancellation_slot.hpp>
 #include <boost/asio/windows/overlapped_ptr.hpp>
 #include <boost/asio/windows/overlapped_handle.hpp>
-#include <boost/asio/associated_cancellation_slot.hpp>
-
 #include <boost/filesystem.hpp>
 #include <boost/throw_exception.hpp>
+#include <boost/system/error_code.hpp>
+#include <boost/system/system_error.hpp>
 
 #include <type_traits>
 #include <utility>
 #include <string>
 #include <string_view>
+#include <memory>
 
 #ifndef WIN32_LEAN_AND_MEAN
 # define WIN32_LEAN_AND_MEAN
@@ -69,7 +71,7 @@ namespace watchman {
 		windows_watch_service(windows_watch_service&&) = default;
 		windows_watch_service& operator=(windows_watch_service&&) = default;
 
-		void open(const fs::path& dir, boost::system::error_code& ec)
+		inline void open(const fs::path& dir, boost::system::error_code& ec)
 		{
 			m_watch_dir = dir;
 
@@ -87,7 +89,7 @@ namespace watchman {
 			this->assign(h, ec);
 		}
 
-		void open(const fs::path& dir)
+		inline void open(const fs::path& dir)
 		{
 			boost::system::error_code ec;
 			m_watch_dir = dir;
@@ -152,7 +154,7 @@ namespace watchman {
 				slot.assign([handle = this->native_handle(),
 					op = op.get()](auto type) mutable
 				{
-					if (boost::asio::cancellation_type::none != type)
+					if (net::cancellation_type::none != type)
 						::CancelIoEx(handle, op);
 				});
 			}
@@ -187,7 +189,7 @@ namespace watchman {
 			}
 		}
 
-		event_type notify_type(DWORD action) const
+		inline constexpr event_type notify_type(DWORD action) const
 		{
 			switch (action)
 			{
@@ -198,16 +200,14 @@ namespace watchman {
 			case FILE_ACTION_MODIFIED:
 				return event_type::modification;
 			case FILE_ACTION_RENAMED_OLD_NAME:
-				return event_type::rename;
 			case FILE_ACTION_RENAMED_NEW_NAME:
 				return event_type::rename;
 			default:
-				break;
+				return event_type::unknown;
 			}
-			return event_type::unknown;
 		}
 
-		void convert_result(uint8_t* data, notify_events& result) const
+		inline void convert_result(uint8_t* data, notify_events& result) const
 		{
 			auto item = (PFILE_NOTIFY_INFORMATION)data;
 			notify_event e;
@@ -244,7 +244,7 @@ namespace watchman {
 			}
 		}
 
-		void throw_error(const boost::system::error_code& err,
+		inline void throw_error(const boost::system::error_code& err,
 			boost::source_location const& loc = BOOST_CURRENT_LOCATION)
 		{
 			if (err)
