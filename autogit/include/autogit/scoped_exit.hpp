@@ -1,15 +1,13 @@
 ﻿//
-// scoped_exit.hpp
-// ~~~~~~~~~~~~~~~
+// Copyright (C) 2019 Jack.
 //
-// Copyright (c) 2023 Jack (jack.arain at gmail dot com)
-//
-// Distributed under the Boost Software License, Version 1.0. (See accompanying
-// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
-//
+// Author: jack
+// Email:  jack.wgm at gmail dot com
 //
 
-#pragma once
+#ifndef INCLUDE__2023_10_18__SCOPED_EXIT_HPP
+#define INCLUDE__2023_10_18__SCOPED_EXIT_HPP
+
 
 #include <type_traits>
 
@@ -51,6 +49,16 @@ public:
 		f_();
 	}
 
+	inline void operator()()
+	{
+		if (stop_token_)
+			return;
+
+		stop_token_ = true;
+
+		f_();
+	}
+
 	inline void cancel()
 	{
 		stop_token_ = true;
@@ -60,3 +68,5 @@ private:
 	T f_;
 	bool stop_token_{ false };
 };
+
+#endif // INCLUDE__2023_10_18__SCOPED_EXIT_HPP
