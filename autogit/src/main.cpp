@@ -9,16 +9,6 @@
 //
 //
 
-#include "autogit/logging.hpp"
-#include "autogit/scoped_exit.hpp"
-#include "autogit/strutil.hpp"
-
-#include "watchman/watchman.hpp"
-
-#include "gitpp/gitpp.hpp"
-
-#include <signal.h>
-
 #include <cstdio>
 #include <cstdlib>
 
@@ -37,6 +27,18 @@ namespace net = boost::asio;
 
 #include <boost/filesystem.hpp>
 namespace fs = boost::filesystem;
+
+#include <signal.h>
+
+
+#include "autogit/logging.hpp"
+#include "autogit/scoped_exit.hpp"
+#include "autogit/strutil.hpp"
+
+#include "watchman/watchman.hpp"
+
+#include "gitpp/gitpp.hpp"
+
 
 //////////////////////////////////////////////////////////////////////////
 
