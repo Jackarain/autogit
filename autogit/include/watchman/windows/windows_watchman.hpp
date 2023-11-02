@@ -11,6 +11,12 @@
 
 #pragma once
 
+#include <type_traits>
+#include <utility>
+#include <string>
+#include <string_view>
+#include <memory>
+
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/associated_cancellation_slot.hpp>
@@ -20,12 +26,6 @@
 #include <boost/throw_exception.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/system/system_error.hpp>
-
-#include <type_traits>
-#include <utility>
-#include <string>
-#include <string_view>
-#include <memory>
 
 #ifndef WIN32_LEAN_AND_MEAN
 # define WIN32_LEAN_AND_MEAN

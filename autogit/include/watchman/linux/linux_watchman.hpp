@@ -11,6 +11,13 @@
 
 #pragma once
 
+#include <type_traits>
+#include <utility>
+#include <string>
+#include <string_view>
+#include <array>
+#include <memory>
+
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/posix/stream_descriptor.hpp>
@@ -19,13 +26,6 @@
 #include <boost/filesystem.hpp>
 #include <boost/bimap.hpp>
 #include <boost/throw_exception.hpp>
-
-#include <type_traits>
-#include <utility>
-#include <string>
-#include <string_view>
-#include <array>
-#include <memory>
 
 #include <sys/inotify.h>
 
