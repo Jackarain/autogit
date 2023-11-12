@@ -473,7 +473,7 @@ namespace gitpp {
 		if (bare)
 			opts.flags |= GIT_REPOSITORY_INIT_BARE;
 
-		opts.origin_url = url.c_str();
+		opts.origin_url = url.empty() ? nullptr : url.c_str();
 		opts.initial_head = "master";
 
 		git_repository* repo = nullptr;
