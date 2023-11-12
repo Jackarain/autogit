@@ -12,8 +12,10 @@
 #pragma once
 
 #include <iostream>
+#include <mutex>
 #include <string>
 
+#include <boost/asio/post.hpp>
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/posix/stream_descriptor.hpp>
@@ -21,10 +23,11 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/throw_exception.hpp>
+#include <boost/system.hpp>
 
 #include <CoreServices/CoreServices.h>
 
-#include "boost/system/detail/error_code.hpp"
+
 #include "watchman/notify_event.hpp"
 
 namespace watchman {
@@ -151,9 +154,24 @@ namespace watchman {
         template <typename Handler>
         void start_op(Handler&& handler)
         {
-            boost::system::error_code ec;
             notify_events es;
-            handler(ec, es);
+
+            // 不阻塞异步调用.
+            if (m_stream && m_event_mtx.try_lock())
+            {
+                es = m_events;
+                m_events.clear();
+
+                m_event_mtx.unlock();
+            }
+
+            // 使用 post 避免直接调用 handler 造成递归调用而爆栈.
+            net::post(m_executor,
+                [handler = std::move(handler), es = std::move(es)]() mutable
+                {
+                    boost::system::error_code ec;
+                    handler(ec, es);
+                });
         }
 
         static void fsevents_callback(ConstFSEventStreamRef streamRef,
@@ -165,6 +183,12 @@ namespace watchman {
         {
             using self_type = macos_watch_service<Executor>;
             auto* fse_monitor = (self_type*) (clientCallBackInfo);
+
+            std::lock_guard lock(fse_monitor->m_event_mtx);
+
+            bool remove = false;
+            if (fse_monitor->m_events.size() > 10000000)
+                remove = true;
 
             for (size_t i = 0; i < numEvents; ++i)
             {
@@ -188,9 +212,9 @@ namespace watchman {
                     event.type_ = event_type::unknown;
                 }
 
-                std::cout << "event: " << eventFlags[i] << ", dir: " << event.path_ << "\n";
-
                 fse_monitor->m_events.push_back(event);
+                if (remove)
+                    fse_monitor->m_events.pop_front();
             }
         }
 
@@ -207,6 +231,7 @@ namespace watchman {
         FSEventStreamContext m_stream_ctx;
         FSEventStreamRef m_stream = nullptr;
         dispatch_queue_t m_fsevents_queue = nullptr;
+        std::mutex m_event_mtx;
         notify_events m_events;
     };
 
