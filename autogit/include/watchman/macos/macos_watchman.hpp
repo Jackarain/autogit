@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <iostream>
+#include <string>
+
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/posix/stream_descriptor.hpp>
@@ -67,7 +70,7 @@ namespace watchman {
                     1.f,
                     &kCFTypeArrayCallBacks);
 
-            std::unique_ptr<FSEventStreamContext> context(new FSEventStreamContext());
+            auto context = &m_stream_ctx;
 
             context->version = 0;
             context->info = this;
@@ -84,7 +87,7 @@ namespace watchman {
 // #endif
             m_stream = FSEventStreamCreate(nullptr,
                                  &macos_watch_service<Executor>::fsevents_callback,
-                                 context.get(),
+                                 context,
                                  paths,
                                  kFSEventStreamEventIdSinceNow,
                                  1,
@@ -147,7 +150,11 @@ namespace watchman {
     private:
         template <typename Handler>
         void start_op(Handler&& handler)
-        {}
+        {
+            boost::system::error_code ec;
+            notify_events es;
+            handler(ec, es);
+        }
 
         static void fsevents_callback(ConstFSEventStreamRef streamRef,
                                   void *clientCallBackInfo,
@@ -157,25 +164,31 @@ namespace watchman {
                                   const FSEventStreamEventId eventIds[])
         {
             using self_type = macos_watch_service<Executor>;
-            auto *fse_monitor = (self_type*) (clientCallBackInfo);
+            auto* fse_monitor = (self_type*) (clientCallBackInfo);
 
             for (size_t i = 0; i < numEvents; ++i)
             {
-                auto path_info_dict = static_cast<CFDictionaryRef>(
+                auto path_info_dict = reinterpret_cast<CFDictionaryRef>(
                     CFArrayGetValueAtIndex((CFArrayRef) eventPaths, i));
-                auto path = static_cast<CFStringRef>(
+                auto path = reinterpret_cast<CFStringRef>(
                     CFDictionaryGetValue(path_info_dict,
                         kFSEventStreamEventExtendedDataPathKey));
-                auto cf_inode = static_cast<CFNumberRef>(
-                    CFDictionaryGetValue(path_info_dict,
-                        kFSEventStreamEventExtendedFileIDKey));
-
-                unsigned long inode;
-                CFNumberGetValue(cf_inode, kCFNumberLongType, &inode);
 
                 notify_event event;
                 event.path_ = std::string(CFStringGetCStringPtr(path, kCFStringEncodingUTF8));
-                event.type_ = event_type::unknown;  //    auto event_type = eventFlags[i];
+                if (eventFlags[i] & kFSEventStreamEventFlagItemCreated) {
+                    event.type_ = event_type::creation;
+                } else if (eventFlags[i] & kFSEventStreamEventFlagItemRemoved) {
+                    event.type_ = event_type::deletion;
+                } else if (eventFlags[i] & kFSEventStreamEventFlagItemRenamed) {
+                    event.type_ = event_type::rename;
+                } else if (eventFlags[i] & kFSEventStreamEventFlagItemModified) {
+                    event.type_ = event_type::modification;
+                } else {
+                    event.type_ = event_type::unknown;
+                }
+
+                std::cout << "event: " << eventFlags[i] << ", dir: " << event.path_ << "\n";
 
                 fse_monitor->m_events.push_back(event);
             }
@@ -191,6 +204,7 @@ namespace watchman {
     private:
         Executor m_executor;
         fs::path m_watch_dir;
+        FSEventStreamContext m_stream_ctx;
         FSEventStreamRef m_stream = nullptr;
         dispatch_queue_t m_fsevents_queue = nullptr;
         notify_events m_events;
