@@ -44,6 +44,11 @@ target_link_libraries(autogit
 	gitpp
 )
 
+if (APPLE)
+	find_library(CORESERVICES_LIBRARY CoreServices)
+	target_link_libraries(autogit ${CORESERVICES_LIBRARY})
+endif()
+
 if (HAVE_IOCTL_SIOCGIFADDR)
 	target_compile_definitions(autogit PUBLIC HAVE_IOCTL_SIOCGIFADDR)
 endif()

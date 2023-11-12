@@ -23,6 +23,11 @@ namespace watchman {
 namespace watchman {
 	using watcher = watchman::linux_watch;
 }
+#elif BOOST_OS_MACOS
+# include "watchman/macos/macos_watchman.hpp"
+namespace watchman {
+	using watcher = watchman::macos_watch;
+}
 #else
 # error There is no implementation for the platform yet.
 #endif
