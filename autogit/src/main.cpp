@@ -317,10 +317,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 	if (!gitpp::is_git_repo(git_dir))
 	{
 		if (global_git_remote_url.empty())
-		{
-			LOG_ERR << "git remote url is empty, please set a remote url";
-			co_return EXIT_FAILURE;
-		}
+			LOG_WARN << "git remote url is empty, please set a remote url";
 
 		boost::system::error_code ec;
 
