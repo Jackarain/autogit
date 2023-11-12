@@ -106,13 +106,29 @@ int cred_acquire_cb(git_cred** cred,
 			"/.ssh/";
 #endif // WIN32
 
-		auto public_key = default_sshdir +
-			(global_ssh_pubkey.empty() ?
-				"id_rsa.pub" : global_ssh_pubkey);
+		const char* private_key = nullptr;
+		const char* public_key = nullptr;
 
-		auto private_key = default_sshdir +
-			(global_ssh_pubkey.empty() ?
-				"id_rsa" : global_ssh_privkey);
+		if (fs::exists(global_ssh_privkey)) {
+			private_key = global_ssh_privkey.c_str();
+		} else {
+			default_sshdir += (global_ssh_privkey.empty() ?
+				"idrsa" : global_ssh_privkey);
+			private_key = default_sshdir.c_str();
+		}
+
+		if (fs::exists(global_ssh_pubkey)) {
+			public_key = global_ssh_pubkey.c_str();
+		} else {
+			auto pubkey_dir = (global_ssh_pubkey.empty() ?
+					"" : global_ssh_pubkey);
+
+			default_sshdir = pubkey_dir.empty() ?
+				"" : default_sshdir + pubkey_dir;
+
+			public_key = default_sshdir.empty() ?
+				nullptr : default_sshdir.c_str();
+		}
 
 		const char* passphrase =
 			global_ssh_passphrase.empty() ?
@@ -121,8 +137,8 @@ int cred_acquire_cb(git_cred** cred,
 		return git_cred_ssh_key_new(
 			cred,
 			username_from_url,
-			public_key.c_str(),		// 这是公钥的路径.
-			private_key.c_str(),	// 这是私钥的路径.
+			public_key,				// 这是公钥的路径.
+			private_key,			// 这是私钥的路径.
 			passphrase				// 如果你的私钥有密码.
 		);
 	}
