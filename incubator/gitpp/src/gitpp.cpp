@@ -419,9 +419,7 @@ namespace gitpp {
 	{
 		git_remote* gr;
 		if (git_remote_lookup(&gr, native_handle(), name.c_str()) != 0)
-		{
 			throw exception::error();
-		}
 
 		return remote(gr);
 	}
@@ -430,9 +428,7 @@ namespace gitpp {
 	{
 		git_commit* r = nullptr;
 		if (git_commit_lookup(&r, native_handle(), &commitid) != 0)
-		{
 			throw exception::error();
-		}
 
 		return commit(r);
 	}
