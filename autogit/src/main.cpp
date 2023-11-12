@@ -357,7 +357,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 			}
 			catch (const std::exception& e)
 			{
-				LOG_ERR << "gitwork: " << e.what();
+				LOG_ERR << "gitwork, exception: " << e.what();
 			}
 
 			auto result = co_await monitor.async_wait(net::use_awaitable);
