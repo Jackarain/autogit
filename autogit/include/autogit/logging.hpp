@@ -137,10 +137,6 @@
 #  pragma warning(disable: 4244 4127)
 # endif // _MSC_VER
 
-# ifdef __clang__
-#  pragma clang diagnostic push
-#  pragma clang diagnostic ignored "-Wexpansion-to-defined"
-# endif
 
 # include <fmt/ostream.h>
 # include <fmt/printf.h>
@@ -150,13 +146,9 @@ namespace std {
 	using ::fmt::format;
 	using ::fmt::format_to;
 	using ::fmt::vformat;
-	using ::fmt::vformat_to;
 	using ::fmt::make_format_args;
 }
 
-# ifdef __clang__
-#  pragma clang diagnostic pop
-# endif
 
 # ifdef _MSC_VER
 #  pragma warning(pop)
@@ -175,6 +167,8 @@ namespace std {
 
 namespace util {
 
+	namespace fs = std::filesystem;
+
 #ifndef LOGGING_DISABLE_BOOST_ASIO_ENDPOINT
 	namespace net = boost::asio;
 #endif
@@ -192,6 +186,18 @@ namespace util {
 
 namespace logging_compress__ {
 
+	struct closefile_deleter {
+		void operator()(FILE* fp) const {
+			fclose(fp);
+		}
+	};
+
+	struct closegz_deleter {
+		void operator()(gzFile gz) const {
+			gzclose(gz);
+		}
+	};
+
 	const inline std::string LOGGING_GZ_SUFFIX = ".gz";
 	const inline size_t LOGGING_GZ_BUFLEN = 65536;
 
@@ -208,16 +214,15 @@ namespace logging_compress__ {
 		gzFile out = gzopen(outfile.c_str(), "wb6f");
 		if (!out)
 			return false;
-		typedef typename std::remove_pointer<gzFile>::type gzFileType;
-		std::unique_ptr<gzFileType,
-			decltype(&gzclose)> gz_closer(out, &gzclose);
+
+		using gzFileType = typename std::remove_pointer<gzFile>::type;
+		std::unique_ptr<gzFileType, closegz_deleter> gz_closer(out);
 
 		FILE* in = fopen(infile.c_str(), "rb");
 		if (!in)
 			return false;
-		using FileCloserType = int (*)(FILE*);
-		std::unique_ptr<FILE, FileCloserType> FILE_closer(in, &fclose);
 
+		std::unique_ptr<FILE, closefile_deleter> FILE_closer(in);
 		std::unique_ptr<char[]> bufs(new char[LOGGING_GZ_BUFLEN]);
 		char* buf = bufs.get();
 		int len;
@@ -700,8 +705,8 @@ public:
 			return;
 
 		std::error_code ignore_ec;
-		if (!std::filesystem::exists(m_log_path, ignore_ec))
-			std::filesystem::create_directories(
+		if (!fs::exists(m_log_path, ignore_ec))
+			fs::create_directories(
 				m_log_path.parent_path(), ignore_ec);
 	}
 	~auto_logger_file__()
@@ -719,8 +724,8 @@ public:
 			return;
 
 		std::error_code ignore_ec;
-		if (!std::filesystem::exists(m_log_path, ignore_ec))
-			std::filesystem::create_directories(
+		if (!fs::exists(m_log_path, ignore_ec))
+			fs::create_directories(
 				m_log_path.parent_path(), ignore_ec);
 	}
 
@@ -762,8 +767,8 @@ public:
 			m_ofstream->close();
 			m_ofstream.reset();
 
-			auto logpath = std::filesystem::path(m_log_path.parent_path());
-			std::filesystem::path filename;
+			auto logpath = fs::path(m_log_path.parent_path());
+			fs::path filename;
 
 			if constexpr (LOG_MAXFILE_SIZE <= 0) {
 				auto logfile = std::format("{:04d}{:02d}{:02d}-{:02d}.log",
@@ -785,10 +790,10 @@ public:
 			m_last_time = time;
 
 			std::error_code ec;
-			if (!std::filesystem::copy_file(m_log_path, filename, ec))
+			if (!fs::copy_file(m_log_path, filename, ec))
 				break;
 
-			std::filesystem::resize_file(m_log_path, 0, ec);
+			fs::resize_file(m_log_path, 0, ec);
 			m_log_size = 0;
 
 #ifdef LOGGING_ENABLE_COMPRESS_LOGS
@@ -801,7 +806,7 @@ public:
 					if (!logging_compress__::do_compress_gz(fn))
 					{
 						auto file = fn + logging_compress__::LOGGING_GZ_SUFFIX;
-						std::filesystem::remove(file, ignore_ec);
+						fs::remove(file, ignore_ec);
 						if (ignore_ec)
 							std::cerr
 								<< "delete log failed: " << file
@@ -810,7 +815,7 @@ public:
 						return;
 					}
 
-					std::filesystem::remove(fn, ignore_ec);
+					fs::remove(fn, ignore_ec);
 				});
 			th.detach();
 #endif
@@ -833,7 +838,7 @@ public:
 	}
 
 private:
-	std::filesystem::path m_log_path{"./logs"};
+	fs::path m_log_path{"./logs"};
 	ofstream_ptr m_ofstream;
 	int64_t m_last_time{ -1 };
 	std::size_t m_log_size{ 0 };
@@ -1602,7 +1607,7 @@ public:
 		return *this;
 	}
 #endif
-	inline logger___& operator<<(const std::filesystem::path& p) noexcept
+	inline logger___& operator<<(const fs::path& p) noexcept
 	{
 		if (!global_logging___)
 			return *this;
