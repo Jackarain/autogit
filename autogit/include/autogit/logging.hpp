@@ -215,7 +215,8 @@ namespace logging_compress__ {
 		FILE* in = fopen(infile.c_str(), "rb");
 		if (!in)
 			return false;
-		std::unique_ptr<FILE, decltype(&fclose)> FILE_closer(in, &fclose);
+		using FileCloserType = int (*)(FILE*);
+		std::unique_ptr<FILE, FileCloserType> FILE_closer(in, &fclose);
 
 		std::unique_ptr<char[]> bufs(new char[LOGGING_GZ_BUFLEN]);
 		char* buf = bufs.get();
