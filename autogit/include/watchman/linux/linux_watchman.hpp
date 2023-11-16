@@ -244,8 +244,14 @@ namespace watchman {
 
 		void add_directory(const fs::path& dir) noexcept
 		{
-			boost::system::error_code ignore_ec;
-			if (!fs::is_directory(dir, ignore_ec))
+			boost::system::error_code ec;
+
+			auto status = fs::status(dir, ec);
+
+			if (!fs::is_directory(dir, ec) ||
+				ec ||
+				fs::is_symlink(status) ||
+				fs::is_block_file(status))
 				return;
 
 			auto wd = inotify_add_watch(
@@ -291,13 +297,13 @@ namespace watchman {
 			fs::directory_iterator end;
 			for (fs::directory_iterator it(dir); it != end; ++it)
 			{
-				boost::system::error_code ignore_ec;
+				boost::system::error_code ec;
 				const auto& item = *it;
 
-				auto status = fs::status(item);
+				auto status = fs::status(item, ec);
 
-				if (fs::is_directory(item, ignore_ec) &&
-					!(fs::is_symlink(status) || fs::is_block_file(status)))
+				if (fs::is_directory(item, ec) &&
+					!(ec || fs::is_symlink(status) || fs::is_block_file(status)))
 				{
 					add_directory(item);
 					add_sub_directory(item);
