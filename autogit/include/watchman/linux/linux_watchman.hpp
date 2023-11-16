@@ -300,6 +300,9 @@ namespace watchman {
 				boost::system::error_code ec;
 				const auto& item = *it;
 
+				if (!fs::exists(item, ec) || ec)
+					continue;
+
 				auto status = fs::status(item, ec);
 
 				if (fs::is_directory(item, ec) &&
