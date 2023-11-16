@@ -292,10 +292,15 @@ namespace watchman {
 			for (fs::directory_iterator it(dir); it != end; ++it)
 			{
 				boost::system::error_code ignore_ec;
-				if (fs::is_directory(*it, ignore_ec))
+				const auto& item = *it;
+
+				auto status = fs::status(item);
+
+				if (fs::is_directory(item, ignore_ec) &&
+					!(fs::is_symlink(status) || fs::is_block_file(status)))
 				{
-					add_directory(*it);
-					add_sub_directory(*it);
+					add_directory(item);
+					add_sub_directory(item);
 				}
 			}
 		}
