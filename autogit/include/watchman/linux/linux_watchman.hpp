@@ -246,12 +246,10 @@ namespace watchman {
 		{
 			boost::system::error_code ec;
 
-			auto status = fs::status(dir, ec);
+			if (!fs::is_directory(dir, ec) || ec)
+				return;
 
-			if (!fs::is_directory(dir, ec) ||
-				ec ||
-				fs::is_symlink(status) ||
-				fs::is_block_file(status))
+			if (fs::is_symlink(dir, ec) || ec)
 				return;
 
 			auto wd = inotify_add_watch(
@@ -300,17 +298,14 @@ namespace watchman {
 				boost::system::error_code ec;
 				const auto& item = *it;
 
-				if (!fs::exists(item, ec) || ec)
+				if (!fs::is_directory(item, ec) || ec)
 					continue;
 
-				auto status = fs::status(item, ec);
+				if (fs::is_symlink(item, ec) || ec)
+					continue;
 
-				if (fs::is_directory(item, ec) &&
-					!(ec || fs::is_symlink(status) || fs::is_block_file(status)))
-				{
-					add_directory(item);
-					add_sub_directory(item);
-				}
+				add_directory(item);
+				add_sub_directory(item);
 			}
 		}
 
