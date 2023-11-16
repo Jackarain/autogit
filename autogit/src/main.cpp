@@ -360,11 +360,11 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 		}
 	}
 
-	gitpp::repo repo(git_dir);
-	watchman::watcher monitor(executor, boost::filesystem::path(git_dir));
-
 	try
 	{
+		gitpp::repo repo(git_dir);
+		watchman::watcher monitor(executor, boost::filesystem::path(git_dir));
+
 		while (true)
 		{
 			try
@@ -397,9 +397,9 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 			}
 		}
 	}
-	catch (std::exception&)
+	catch (std::exception& e)
 	{
-		LOG_DBG << "git loop thread stopped";
+		LOG_DBG << "git loop thread stopped, exception: " << e.what();
 	}
 
 	co_return EXIT_SUCCESS;
