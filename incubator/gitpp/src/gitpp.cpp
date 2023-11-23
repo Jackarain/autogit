@@ -86,6 +86,14 @@ namespace gitpp {
 		return reinterpret_cast<const git_commit*> (this->obj_);
 	}
 
+	std::string commit::message() const
+	{
+		auto message = git_commit_message(native_handle());
+		if (message == nullptr)
+			return {};
+		return message;
+	}
+
 	tree::tree(git_tree* t)
 		: object((git_object*)t)
 	{

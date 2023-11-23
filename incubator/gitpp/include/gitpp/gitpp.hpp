@@ -151,6 +151,8 @@ namespace gitpp {
 		explicit commit(git_commit*);
 		git_commit* native_handle();
 		const git_commit* native_handle() const;
+
+		std::string message() const;
 	};
 
 	class tree_entry
