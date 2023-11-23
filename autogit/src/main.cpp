@@ -363,6 +363,21 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 	try
 	{
 		gitpp::repo repo(git_dir);
+
+		// 获取仓库的 HEAD 引用，根据引用获取最新的 commit 对象.
+		gitpp::reference head = repo.head();
+		try
+		{
+			gitpp::commit commit = repo.lookup_commit(head.target());
+
+			// 读取 commit 对象的提交信息.
+			LOG_DBG << "Commit: " << commit.message();
+		}
+		catch (const std::exception& e)
+		{
+			LOG_WARN << "lookup_commit, exception: " << e.what();
+		}
+
 		watchman::watcher monitor(executor, boost::filesystem::path(git_dir));
 
 		while (true)
