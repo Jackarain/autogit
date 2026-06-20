@@ -43,4 +43,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: autogit-windows
-          path: build/bin/autogit.exe
+          path: build/bin/release/autogit.exe
