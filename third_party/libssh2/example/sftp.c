@@ -1,17 +1,20 @@
-/*
+/* Copyright (C) The libssh2 project and its contributors.
+ *
  * Sample showing how to do SFTP transfers.
  *
  * The sample code has default values for host name, user name, password
  * and path to copy, but you can specify them on the command line like:
  *
  * $ ./sftp 192.168.0.1 user password /tmp/secrets -p|-i|-k
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include "libssh2_setup.h"
 #include <libssh2.h>
 #include <libssh2_sftp.h>
 
-#ifdef WIN32
+#ifdef _WIN32
 #define write(f, b, c)  write((f), (b), (unsigned int)(c))
 #endif
 
@@ -52,11 +55,11 @@ static void kbd_callback(const char *name, int name_len,
     fprintf(stderr, "Performing keyboard-interactive authentication.\n");
 
     fprintf(stderr, "Authentication name: '");
-    fwrite(name, 1, name_len, stderr);
+    fwrite(name, 1, (size_t)name_len, stderr);
     fprintf(stderr, "'\n");
 
     fprintf(stderr, "Authentication instruction: '");
-    fwrite(instruction, 1, instruction_len, stderr);
+    fwrite(instruction, 1, (size_t)instruction_len, stderr);
     fprintf(stderr, "'\n");
 
     fprintf(stderr, "Number of prompts: %d\n\n", num_prompts);
@@ -98,7 +101,7 @@ int main(int argc, char *argv[])
     LIBSSH2_SFTP *sftp_session;
     LIBSSH2_SFTP_HANDLE *sftp_handle;
 
-#ifdef WIN32
+#ifdef _WIN32
     WSADATA wsadata;
 
     rc = WSAStartup(MAKEWORD(2, 0), &wsadata);
@@ -136,7 +139,7 @@ int main(int argc, char *argv[])
      */
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if(sock == LIBSSH2_INVALID_SOCKET) {
-        fprintf(stderr, "failed to create socket!\n");
+        fprintf(stderr, "failed to create socket.\n");
         goto shutdown;
     }
 
@@ -144,14 +147,14 @@ int main(int argc, char *argv[])
     sin.sin_port = htons(22);
     sin.sin_addr.s_addr = hostaddr;
     if(connect(sock, (struct sockaddr*)(&sin), sizeof(struct sockaddr_in))) {
-        fprintf(stderr, "failed to connect!\n");
+        fprintf(stderr, "failed to connect.\n");
         goto shutdown;
     }
 
     /* Create a session instance */
     session = libssh2_session_init();
     if(!session) {
-        fprintf(stderr, "Could not initialize SSH session!\n");
+        fprintf(stderr, "Could not initialize SSH session.\n");
         goto shutdown;
     }
 
@@ -210,7 +213,7 @@ int main(int argc, char *argv[])
         if(auth_pw & 1) {
             /* We could authenticate via password */
             if(libssh2_userauth_password(session, username, password)) {
-                fprintf(stderr, "Authentication by password failed!\n");
+                fprintf(stderr, "Authentication by password failed.\n");
                 goto shutdown;
             }
         }
@@ -219,7 +222,7 @@ int main(int argc, char *argv[])
             if(libssh2_userauth_keyboard_interactive(session, username,
                                                      &kbd_callback) ) {
                 fprintf(stderr,
-                        "Authentication by keyboard-interactive failed!\n");
+                        "Authentication by keyboard-interactive failed.\n");
                 goto shutdown;
             }
             else {
@@ -232,7 +235,7 @@ int main(int argc, char *argv[])
             if(libssh2_userauth_publickey_fromfile(session, username,
                                                    pubkey, privkey,
                                                    password)) {
-                fprintf(stderr, "Authentication by public key failed!\n");
+                fprintf(stderr, "Authentication by public key failed.\n");
                 goto shutdown;
             }
             else {
@@ -240,12 +243,12 @@ int main(int argc, char *argv[])
             }
         }
         else {
-            fprintf(stderr, "No supported authentication methods found!\n");
+            fprintf(stderr, "No supported authentication methods found.\n");
             goto shutdown;
         }
     }
 
-    fprintf(stderr, "libssh2_sftp_init()!\n");
+    fprintf(stderr, "libssh2_sftp_init().\n");
     sftp_session = libssh2_sftp_init(session);
 
     if(!sftp_session) {
@@ -253,7 +256,7 @@ int main(int argc, char *argv[])
         goto shutdown;
     }
 
-    fprintf(stderr, "libssh2_sftp_open()!\n");
+    fprintf(stderr, "libssh2_sftp_open().\n");
     /* Request a file via SFTP */
     sftp_handle = libssh2_sftp_open(sftp_session, sftppath,
                                     LIBSSH2_FXF_READ, 0);
@@ -263,16 +266,16 @@ int main(int argc, char *argv[])
         goto shutdown;
     }
 
-    fprintf(stderr, "libssh2_sftp_open() is done, now receive data!\n");
+    fprintf(stderr, "libssh2_sftp_open() is done, now receive data.\n");
     do {
         char mem[1024];
         ssize_t nread;
 
         /* loop until we fail */
-        fprintf(stderr, "libssh2_sftp_read()!\n");
+        fprintf(stderr, "libssh2_sftp_read().\n");
         nread = libssh2_sftp_read(sftp_handle, mem, sizeof(mem));
         if(nread > 0) {
-            write(1, mem, nread);
+            write(1, mem, (size_t)nread);
         }
         else {
             break;
@@ -291,16 +294,16 @@ shutdown:
 
     if(sock != LIBSSH2_INVALID_SOCKET) {
         shutdown(sock, 2);
-#ifdef WIN32
-        closesocket(sock);
-#else
-        close(sock);
-#endif
+        LIBSSH2_SOCKET_CLOSE(sock);
     }
 
     fprintf(stderr, "all done\n");
 
     libssh2_exit();
+
+#ifdef _WIN32
+    WSACleanup();
+#endif
 
     return 0;
 }

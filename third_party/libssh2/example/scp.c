@@ -1,11 +1,14 @@
-/*
+/* Copyright (C) The libssh2 project and its contributors.
+ *
  * Sample showing how to do a simple SCP transfer.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include "libssh2_setup.h"
 #include <libssh2.h>
 
-#ifdef WIN32
+#ifdef _WIN32
 #define write(f, b, c)  write((f), (b), (unsigned int)(c))
 #endif
 
@@ -43,7 +46,7 @@ int main(int argc, char *argv[])
     libssh2_struct_stat fileinfo;
     libssh2_struct_stat_size got = 0;
 
-#ifdef WIN32
+#ifdef _WIN32
     WSADATA wsadata;
 
     rc = WSAStartup(MAKEWORD(2, 0), &wsadata);
@@ -80,7 +83,7 @@ int main(int argc, char *argv[])
      */
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if(sock == LIBSSH2_INVALID_SOCKET) {
-        fprintf(stderr, "failed to create socket!\n");
+        fprintf(stderr, "failed to create socket.\n");
         goto shutdown;
     }
 
@@ -88,14 +91,14 @@ int main(int argc, char *argv[])
     sin.sin_port = htons(22);
     sin.sin_addr.s_addr = hostaddr;
     if(connect(sock, (struct sockaddr*)(&sin), sizeof(struct sockaddr_in))) {
-        fprintf(stderr, "failed to connect!\n");
+        fprintf(stderr, "failed to connect.\n");
         goto shutdown;
     }
 
     /* Create a session instance */
     session = libssh2_session_init();
     if(!session) {
-        fprintf(stderr, "Could not initialize SSH session!\n");
+        fprintf(stderr, "Could not initialize SSH session.\n");
         goto shutdown;
     }
 
@@ -123,7 +126,7 @@ int main(int argc, char *argv[])
     if(auth_pw) {
         /* We could authenticate via password */
         if(libssh2_userauth_password(session, username, password)) {
-            fprintf(stderr, "Authentication by password failed!\n");
+            fprintf(stderr, "Authentication by password failed.\n");
             goto shutdown;
         }
     }
@@ -132,7 +135,7 @@ int main(int argc, char *argv[])
         if(libssh2_userauth_publickey_fromfile(session, username,
                                                pubkey, privkey,
                                                password)) {
-            fprintf(stderr, "Authentication by public key failed!\n");
+            fprintf(stderr, "Authentication by public key failed.\n");
             goto shutdown;
         }
     }
@@ -155,13 +158,13 @@ int main(int argc, char *argv[])
             amount = (int)(fileinfo.st_size - got);
         }
 
-        nread = libssh2_channel_read(channel, mem, amount);
+        nread = libssh2_channel_read(channel, mem, (size_t)amount);
         if(nread > 0) {
-            write(1, mem, nread);
+            write(1, mem, (size_t)nread);
         }
         else if(nread < 0) {
-            fprintf(stderr, "libssh2_channel_read() failed: %d\n",
-                    (int)nread);
+            fprintf(stderr, "libssh2_channel_read() failed: %ld\n",
+                    (long)nread);
             break;
         }
         got += nread;
@@ -179,16 +182,16 @@ shutdown:
 
     if(sock != LIBSSH2_INVALID_SOCKET) {
         shutdown(sock, 2);
-#ifdef WIN32
-        closesocket(sock);
-#else
-        close(sock);
-#endif
+        LIBSSH2_SOCKET_CLOSE(sock);
     }
 
     fprintf(stderr, "all done\n");
 
     libssh2_exit();
+
+#ifdef _WIN32
+    WSACleanup();
+#endif
 
     return 0;
 }

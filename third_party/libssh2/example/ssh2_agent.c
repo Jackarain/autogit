@@ -1,9 +1,12 @@
-/*
+/* Copyright (C) The libssh2 project and its contributors.
+ *
  * Sample showing how to do SSH2 connect using ssh-agent.
  *
  * The sample code has default values for host name, user name:
  *
  * $ ./ssh2_agent host user
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include "libssh2_setup.h"
@@ -41,7 +44,7 @@ int main(int argc, char *argv[])
     LIBSSH2_AGENT *agent = NULL;
     struct libssh2_agent_publickey *identity, *prev_identity = NULL;
 
-#ifdef WIN32
+#ifdef _WIN32
     WSADATA wsadata;
 
     rc = WSAStartup(MAKEWORD(2, 0), &wsadata);
@@ -72,7 +75,7 @@ int main(int argc, char *argv[])
      */
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if(sock == LIBSSH2_INVALID_SOCKET) {
-        fprintf(stderr, "failed to create socket!\n");
+        fprintf(stderr, "failed to create socket.\n");
         rc = 1;
         goto shutdown;
     }
@@ -81,14 +84,14 @@ int main(int argc, char *argv[])
     sin.sin_port = htons(22);
     sin.sin_addr.s_addr = hostaddr;
     if(connect(sock, (struct sockaddr*)(&sin), sizeof(struct sockaddr_in))) {
-        fprintf(stderr, "failed to connect!\n");
+        fprintf(stderr, "failed to connect.\n");
         goto shutdown;
     }
 
     /* Create a session instance */
     session = libssh2_session_init();
     if(!session) {
-        fprintf(stderr, "Could not initialize SSH session!\n");
+        fprintf(stderr, "Could not initialize SSH session.\n");
         goto shutdown;
     }
 
@@ -116,7 +119,7 @@ int main(int argc, char *argv[])
     if(userauthlist) {
         fprintf(stderr, "Authentication methods: %s\n", userauthlist);
         if(!strstr(userauthlist, "publickey")) {
-            fprintf(stderr, "\"publickey\" authentication is not supported\n");
+            fprintf(stderr, "'publickey' authentication is not supported\n");
             goto shutdown;
         }
 
@@ -149,7 +152,7 @@ int main(int argc, char *argv[])
             }
             if(libssh2_agent_userauth(agent, username, identity)) {
                 fprintf(stderr, "Authentication with username %s and "
-                        "public key %s failed!\n",
+                        "public key %s failed.\n",
                         username, identity->comment);
             }
             else {
@@ -235,16 +238,16 @@ shutdown:
 
     if(sock != LIBSSH2_INVALID_SOCKET) {
         shutdown(sock, 2);
-#ifdef WIN32
-        closesocket(sock);
-#else
-        close(sock);
-#endif
+        LIBSSH2_SOCKET_CLOSE(sock);
     }
 
     fprintf(stderr, "all done\n");
 
     libssh2_exit();
+
+#ifdef _WIN32
+    WSACleanup();
+#endif
 
     return rc;
 }

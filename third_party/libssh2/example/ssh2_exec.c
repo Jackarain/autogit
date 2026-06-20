@@ -1,4 +1,5 @@
-/*
+/* Copyright (C) The libssh2 project and its contributors.
+ *
  * Sample showing how to use libssh2 to execute a command remotely.
  *
  * The sample code has fixed values for host name, user name, password
@@ -6,6 +7,7 @@
  *
  * $ ./ssh2_exec 127.0.0.1 user password "uptime"
  *
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include "libssh2_setup.h"
@@ -49,7 +51,14 @@ static int waitsocket(libssh2_socket_t socket_fd, LIBSSH2_SESSION *session)
 
     FD_ZERO(&fd);
 
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#endif
     FD_SET(socket_fd, &fd);
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
     /* now make sure we wait in the correct direction */
     dir = libssh2_session_block_directions(session);
@@ -81,7 +90,7 @@ int main(int argc, char *argv[])
     LIBSSH2_KNOWNHOSTS *nh;
     int type;
 
-#ifdef WIN32
+#ifdef _WIN32
     WSADATA wsadata;
 
     rc = WSAStartup(MAKEWORD(2, 0), &wsadata);
@@ -117,7 +126,7 @@ int main(int argc, char *argv[])
      */
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if(sock == LIBSSH2_INVALID_SOCKET) {
-        fprintf(stderr, "failed to create socket!\n");
+        fprintf(stderr, "failed to create socket.\n");
         goto shutdown;
     }
 
@@ -125,14 +134,14 @@ int main(int argc, char *argv[])
     sin.sin_port = htons(22);
     sin.sin_addr.s_addr = hostaddr;
     if(connect(sock, (struct sockaddr*)(&sin), sizeof(struct sockaddr_in))) {
-        fprintf(stderr, "failed to connect!\n");
+        fprintf(stderr, "failed to connect.\n");
         goto shutdown;
     }
 
     /* Create a session instance */
     session = libssh2_session_init();
     if(!session) {
-        fprintf(stderr, "Could not initialize SSH session!\n");
+        fprintf(stderr, "Could not initialize SSH session.\n");
         goto shutdown;
     }
 
@@ -192,7 +201,7 @@ int main(int argc, char *argv[])
         while((rc = libssh2_userauth_password(session, username, password)) ==
               LIBSSH2_ERROR_EAGAIN);
         if(rc) {
-            fprintf(stderr, "Authentication by password failed!\n");
+            fprintf(stderr, "Authentication by password failed.\n");
             goto shutdown;
         }
     }
@@ -203,7 +212,7 @@ int main(int argc, char *argv[])
                                                         password)) ==
               LIBSSH2_ERROR_EAGAIN);
         if(rc) {
-            fprintf(stderr, "Authentication by public key failed!\n");
+            fprintf(stderr, "Authentication by public key failed.\n");
             goto shutdown;
         }
     }
@@ -250,15 +259,14 @@ int main(int argc, char *argv[])
             else {
                 if(nread != LIBSSH2_ERROR_EAGAIN)
                     /* no need to output this for the EAGAIN case */
-                    fprintf(stderr, "libssh2_channel_read returned %d\n",
-                            (int)nread);
+                    fprintf(stderr, "libssh2_channel_read returned %ld\n",
+                            (long)nread);
             }
-        }
-        while(nread > 0);
+        } while(nread > 0);
 
         /* this is due to blocking that would occur otherwise so we loop on
            this condition */
-        if(rc == LIBSSH2_ERROR_EAGAIN) {
+        if(nread == LIBSSH2_ERROR_EAGAIN) {
             waitsocket(sock, session);
         }
         else
@@ -277,8 +285,8 @@ int main(int argc, char *argv[])
     if(exitsignal)
         fprintf(stderr, "\nGot signal: %s\n", exitsignal);
     else
-        fprintf(stderr, "\nEXIT: %d bytecount: %d\n",
-                exitcode, (int)bytecount);
+        fprintf(stderr, "\nEXIT: %d bytecount: %ld\n",
+                exitcode, (long)bytecount);
 
     libssh2_channel_free(channel);
     channel = NULL;
@@ -292,16 +300,16 @@ shutdown:
 
     if(sock != LIBSSH2_INVALID_SOCKET) {
         shutdown(sock, 2);
-#ifdef WIN32
-        closesocket(sock);
-#else
-        close(sock);
-#endif
+        LIBSSH2_SOCKET_CLOSE(sock);
     }
 
     fprintf(stderr, "all done\n");
 
     libssh2_exit();
+
+#ifdef _WIN32
+    WSACleanup();
+#endif
 
     return 0;
 }

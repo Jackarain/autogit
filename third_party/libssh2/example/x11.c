@@ -1,7 +1,10 @@
-/*
+/* Copyright (C) The libssh2 project and its contributors.
+ *
  * Sample showing how to makes SSH2 with X11 Forwarding works.
  *
  * $ ./x11 host user password [DEBUG]
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include "libssh2_setup.h"
@@ -43,7 +46,7 @@
  */
 struct chan_X11_list {
     LIBSSH2_CHANNEL  *chan;
-    int               sock;
+    libssh2_socket_t  sock;
     struct chan_X11_list *next;
 };
 
@@ -91,10 +94,11 @@ static int _raw_mode(void)
     if(rc != -1) {
         _saved_tio = tio;
         /* do the equivalent of cfmakeraw() manually, to build on Solaris */
-        tio.c_iflag &= ~(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL|IXON);
-        tio.c_oflag &= ~OPOST;
-        tio.c_lflag &= ~(ECHO|ECHONL|ICANON|ISIG|IEXTEN);
-        tio.c_cflag &= ~(CSIZE|PARENB);
+        tio.c_iflag &= ~(tcflag_t)(IGNBRK|BRKINT|PARMRK|ISTRIP|
+                                   INLCR|IGNCR|ICRNL|IXON);
+        tio.c_oflag &= ~(tcflag_t)OPOST;
+        tio.c_lflag &= ~(tcflag_t)(ECHO|ECHONL|ICANON|ISIG|IEXTEN);
+        tio.c_cflag &= ~(tcflag_t)(CSIZE|PARENB);
         tio.c_cflag |= CS8;
         rc = tcsetattr(fileno(stdin), TCSADRAIN, &tio);
     }
@@ -141,7 +145,7 @@ static void x11_callback(LIBSSH2_SESSION *session, LIBSSH2_CHANNEL *channel,
             ptr = strrchr(display, ':');
             temp_buff = (char *)calloc(strlen(ptr + 1) + 1, sizeof(char));
             if(!temp_buff) {
-                fprintf(stderr, "failed to calloc()!\n");
+                fprintf(stderr, "failed to calloc().\n");
                 return;
             }
             memcpy(temp_buff, ptr + 1, strlen(ptr + 1));
@@ -182,7 +186,7 @@ static void x11_callback(LIBSSH2_SESSION *session, LIBSSH2_CHANNEL *channel,
             }
             else {
                 shutdown(sock, SHUT_RDWR);
-                close(sock);
+                LIBSSH2_SOCKET_CLOSE(sock);
             }
         }
     }
@@ -193,12 +197,12 @@ static void x11_callback(LIBSSH2_SESSION *session, LIBSSH2_CHANNEL *channel,
  * Send and receive Data for the X11 channel.
  * If the connection is closed, returns -1, 0 either.
  */
-static int x11_send_receive(LIBSSH2_CHANNEL *channel, int sock)
+static int x11_send_receive(LIBSSH2_CHANNEL *channel, libssh2_socket_t sock)
 {
     char *buf;
-    int bufsize = 8192;
+    unsigned int bufsize = 8192;
     int rc;
-    int nfds = 1;
+    unsigned int nfds = 1;
     LIBSSH2_POLLFD *fds = NULL;
     fd_set set;
     struct timeval timeval_out;
@@ -206,7 +210,14 @@ static int x11_send_receive(LIBSSH2_CHANNEL *channel, int sock)
     timeval_out.tv_usec = 0;
 
     FD_ZERO(&set);
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#endif
     FD_SET(sock, &set);
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
     buf = calloc(bufsize, sizeof(char));
     if(!buf)
@@ -227,7 +238,8 @@ static int x11_send_receive(LIBSSH2_CHANNEL *channel, int sock)
     if(rc > 0) {
         ssize_t nread;
         nread = libssh2_channel_read(channel, buf, bufsize);
-        write(sock, buf, nread);
+        if(nread > 0)
+            write(sock, buf, (size_t)nread);
     }
 
     rc = select((int)(sock + 1), &set, NULL, NULL, &timeval_out);
@@ -239,7 +251,7 @@ static int x11_send_receive(LIBSSH2_CHANNEL *channel, int sock)
         /* Data in sock */
         nread = read(sock, buf, bufsize);
         if(nread > 0) {
-            libssh2_channel_write(channel, buf, nread);
+            libssh2_channel_write(channel, buf, (size_t)nread);
         }
         else {
             free(buf);
@@ -271,7 +283,7 @@ int main(int argc, char *argv[])
     size_t bufsiz = 8193;
     char *buf = NULL;
     int set_debug_on = 0;
-    int nfds = 1;
+    unsigned int nfds = 1;
     LIBSSH2_POLLFD *fds = NULL;
 
     /* Chan List struct */
@@ -311,7 +323,7 @@ int main(int argc, char *argv[])
 
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if(sock == LIBSSH2_INVALID_SOCKET) {
-        fprintf(stderr, "failed to open socket!\n");
+        fprintf(stderr, "failed to open socket.\n");
         return -1;
     }
 
@@ -320,7 +332,7 @@ int main(int argc, char *argv[])
     sin.sin_addr.s_addr = hostaddr;
 
     if(connect(sock, (struct sockaddr*)(&sin), sizeof(struct sockaddr_in))) {
-        fprintf(stderr, "Failed to established connection!\n");
+        fprintf(stderr, "Failed to established connection.\n");
         return -1;
     }
     /* Open a session */
@@ -334,13 +346,9 @@ int main(int argc, char *argv[])
     if(set_debug_on == 1)
         libssh2_trace(session, LIBSSH2_TRACE_CONN);
 
-    /* ignore pedantic warnings by gcc on the callback argument */
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpedantic"
     /* Set X11 Callback */
-    libssh2_session_callback_set(session, LIBSSH2_CALLBACK_X11,
-                                 (void *)x11_callback);
-#pragma GCC diagnostic pop
+    libssh2_session_callback_set2(session, LIBSSH2_CALLBACK_X11,
+                                  (libssh2_cb_generic *)x11_callback);
 
     /* Authenticate via password */
     rc = libssh2_userauth_password(session, username, password);
@@ -348,7 +356,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to authenticate\n");
         session_shutdown(session);
         shutdown(sock, SHUT_RDWR);
-        close(sock);
+        LIBSSH2_SOCKET_CLOSE(sock);
         return -1;
     }
 
@@ -358,7 +366,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to open a new channel\n");
         session_shutdown(session);
         shutdown(sock, SHUT_RDWR);
-        close(sock);
+        LIBSSH2_SOCKET_CLOSE(sock);
         return -1;
     }
 
@@ -368,7 +376,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to request a pty\n");
         session_shutdown(session);
         shutdown(sock, SHUT_RDWR);
-        close(sock);
+        LIBSSH2_SOCKET_CLOSE(sock);
         return -1;
     }
 
@@ -378,7 +386,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to request X11 forwarding\n");
         session_shutdown(session);
         shutdown(sock, SHUT_RDWR);
-        close(sock);
+        LIBSSH2_SOCKET_CLOSE(sock);
         return -1;
     }
 
@@ -388,7 +396,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to open a shell\n");
         session_shutdown(session);
         shutdown(sock, SHUT_RDWR);
-        close(sock);
+        LIBSSH2_SOCKET_CLOSE(sock);
         return -1;
     }
 
@@ -397,7 +405,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to entered in raw mode\n");
         session_shutdown(session);
         shutdown(sock, SHUT_RDWR);
-        close(sock);
+        LIBSSH2_SOCKET_CLOSE(sock);
         return -1;
     }
 
@@ -407,7 +415,14 @@ int main(int argc, char *argv[])
     for(;;) {
 
         FD_ZERO(&set);
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#endif
         FD_SET(fileno(stdin), &set);
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
         /* Search if a resize pty has to be send */
         ioctl(fileno(stdin), TIOCGWINSZ, &w_size);
@@ -455,7 +470,7 @@ int main(int argc, char *argv[])
             next_node = current_node->next;
             if(rc == -1) {
                 shutdown(current_node->sock, SHUT_RDWR);
-                close(current_node->sock);
+                LIBSSH2_SOCKET_CLOSE(current_node->sock);
                 remove_node(current_node);
             }
 

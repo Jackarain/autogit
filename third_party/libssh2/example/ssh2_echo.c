@@ -1,9 +1,11 @@
-/*
+/* Copyright (C) The libssh2 project and its contributors.
+ *
  * The code sends a 'cat' command, and then writes a lot of data to it only to
  * check that reading the returned data sums up to the same amount.
  *
  * $ ./ssh2_echo 127.0.0.1 user password
  *
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include "libssh2_setup.h"
@@ -45,7 +47,14 @@ static int waitsocket(libssh2_socket_t socket_fd, LIBSSH2_SESSION *session)
 
     FD_ZERO(&fd);
 
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#endif
     FD_SET(socket_fd, &fd);
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
     /* now make sure we wait in the correct direction */
     dir = libssh2_session_block_directions(session);
@@ -78,7 +87,7 @@ int main(int argc, char *argv[])
     LIBSSH2_KNOWNHOSTS *nh;
     int type;
 
-#ifdef WIN32
+#ifdef _WIN32
     WSADATA wsadata;
 
     rc = WSAStartup(MAKEWORD(2, 0), &wsadata);
@@ -111,7 +120,7 @@ int main(int argc, char *argv[])
      */
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if(sock == LIBSSH2_INVALID_SOCKET) {
-        fprintf(stderr, "failed to create socket!\n");
+        fprintf(stderr, "failed to create socket.\n");
         goto shutdown;
     }
 
@@ -119,14 +128,14 @@ int main(int argc, char *argv[])
     sin.sin_port = htons(22);
     sin.sin_addr.s_addr = hostaddr;
     if(connect(sock, (struct sockaddr*)(&sin), sizeof(struct sockaddr_in))) {
-        fprintf(stderr, "failed to connect!\n");
+        fprintf(stderr, "failed to connect.\n");
         goto shutdown;
     }
 
     /* Create a session instance */
     session = libssh2_session_init();
     if(!session) {
-        fprintf(stderr, "Could not initialize SSH session!\n");
+        fprintf(stderr, "Could not initialize SSH session.\n");
         goto shutdown;
     }
 
@@ -186,7 +195,7 @@ int main(int argc, char *argv[])
         while((rc = libssh2_userauth_password(session, username, password)) ==
               LIBSSH2_ERROR_EAGAIN);
         if(rc) {
-            fprintf(stderr, "Authentication by password failed!\n");
+            fprintf(stderr, "Authentication by password failed.\n");
             exit(1);
         }
     }
@@ -217,11 +226,11 @@ int main(int argc, char *argv[])
     else {
         LIBSSH2_POLLFD *fds = NULL;
         int running = 1;
-        ssize_t bufsize = BUFSIZE;
+        size_t bufsize = BUFSIZE;
         char buffer[BUFSIZE];
-        ssize_t totsize = 1500000;
-        ssize_t totwritten = 0;
-        ssize_t totread = 0;
+        size_t totsize = 1500000;
+        size_t totwritten = 0;
+        size_t totread = 0;
         int rereads = 0;
         int rewrites = 0;
         int i;
@@ -260,9 +269,9 @@ int main(int argc, char *argv[])
                     exit(1);
                 }
                 else {
-                    totread += n;
-                    fprintf(stderr, "read %d bytes (%d in total)\n",
-                            (int)n, (int)totread);
+                    totread += (size_t)n;
+                    fprintf(stderr, "read %ld bytes (%lu in total)\n",
+                            (long)n, (unsigned long)totread);
                 }
             }
 
@@ -271,8 +280,8 @@ int main(int argc, char *argv[])
 
                 if(totwritten < totsize) {
                     /* we have not written all data yet */
-                    ssize_t left = totsize - totwritten;
-                    ssize_t size = (left < bufsize) ? left : bufsize;
+                    size_t left = totsize - totwritten;
+                    size_t size = (left < bufsize) ? left : bufsize;
                     ssize_t n = libssh2_channel_write_ex(channel, 0,
                                                          buffer, size);
 
@@ -285,10 +294,10 @@ int main(int argc, char *argv[])
                         exit(1);
                     }
                     else {
-                        totwritten += n;
-                        fprintf(stderr, "wrote %d bytes (%d in total)",
-                                (int)n, (int)totwritten);
-                        if(left >= bufsize && n != bufsize) {
+                        totwritten += (size_t)n;
+                        fprintf(stderr, "wrote %ld bytes (%lu in total)",
+                                (long)n, (unsigned long)totwritten);
+                        if(left >= bufsize && (size_t)n != bufsize) {
                             fprintf(stderr, " PARTIAL");
                         }
                         fprintf(stderr, "\n");
@@ -308,7 +317,8 @@ int main(int argc, char *argv[])
                     else {
                         fprintf(stderr, "sent eof\n");
                         /* we're done writing, stop listening for OUT events */
-                        fds[0].events &= ~LIBSSH2_POLLFD_POLLOUT;
+                        fds[0].events &=
+                            ~(unsigned long)LIBSSH2_POLLFD_POLLOUT;
                     }
                 }
             }
@@ -335,12 +345,13 @@ int main(int argc, char *argv[])
         libssh2_channel_free(channel);
         channel = NULL;
 
-        fprintf(stderr, "\nrereads: %d rewrites: %d totwritten %d\n",
-                rereads, rewrites, (int)totwritten);
+        fprintf(stderr, "\nrereads: %d rewrites: %d totwritten %lu\n",
+                rereads, rewrites, (unsigned long)totwritten);
 
         if(totwritten != totread) {
-            fprintf(stderr, "\n*** FAIL bytes written: %d bytes "
-                    "read: %d ***\n", (int)totwritten, (int)totread);
+            fprintf(stderr, "\n*** FAIL bytes written: "
+                    "%lu bytes read: %lu ***\n",
+                    (unsigned long)totwritten, (unsigned long)totread);
             exit(1);
         }
     }
@@ -354,16 +365,16 @@ shutdown:
 
     if(sock != LIBSSH2_INVALID_SOCKET) {
         shutdown(sock, 2);
-#ifdef WIN32
-        closesocket(sock);
-#else
-        close(sock);
-#endif
+        LIBSSH2_SOCKET_CLOSE(sock);
     }
 
     fprintf(stderr, "all done\n");
 
     libssh2_exit();
+
+#ifdef _WIN32
+    WSACleanup();
+#endif
 
     return exitcode;
 }

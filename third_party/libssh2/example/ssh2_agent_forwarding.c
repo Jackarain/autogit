@@ -1,4 +1,5 @@
-/*
+/* Copyright (C) The libssh2 project and its contributors.
+ *
  * Sample showing how to use libssh2 to request agent forwarding
  * on the remote host. The command executed will run with agent forwarded
  * so you should be able to do things like clone out protected git
@@ -9,6 +10,7 @@
  *
  * $ ./ssh2_agent_forwarding 127.0.0.1 user "uptime"
  *
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include "libssh2_setup.h"
@@ -48,7 +50,14 @@ static int waitsocket(libssh2_socket_t socket_fd, LIBSSH2_SESSION *session)
 
     FD_ZERO(&fd);
 
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#endif
     FD_SET(socket_fd, &fd);
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
     /* now make sure we wait in the correct direction */
     dir = libssh2_session_block_directions(session);
@@ -78,7 +87,7 @@ int main(int argc, char *argv[])
     char *exitsignal = (char *)"none";
     ssize_t bytecount = 0;
 
-#ifdef WIN32
+#ifdef _WIN32
     WSADATA wsadata;
 
     rc = WSAStartup(MAKEWORD(2, 0), &wsadata);
@@ -113,7 +122,7 @@ int main(int argc, char *argv[])
      */
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if(sock == LIBSSH2_INVALID_SOCKET) {
-        fprintf(stderr, "failed to create socket!\n");
+        fprintf(stderr, "failed to create socket.\n");
         goto shutdown;
     }
 
@@ -121,14 +130,14 @@ int main(int argc, char *argv[])
     sin.sin_port = htons(22);
     sin.sin_addr.s_addr = hostaddr;
     if(connect(sock, (struct sockaddr*)(&sin), sizeof(struct sockaddr_in))) {
-        fprintf(stderr, "failed to connect!\n");
+        fprintf(stderr, "failed to connect.\n");
         goto shutdown;
     }
 
     /* Create a session instance */
     session = libssh2_session_init();
     if(!session) {
-        fprintf(stderr, "Could not initialize SSH session!\n");
+        fprintf(stderr, "Could not initialize SSH session.\n");
         goto shutdown;
     }
 
@@ -166,7 +175,7 @@ int main(int argc, char *argv[])
         }
         if(libssh2_agent_userauth(agent, username, identity)) {
             fprintf(stderr, "Authentication with username %s and "
-                    "public key %s failed!\n",
+                    "public key %s failed.\n",
                     username, identity->comment);
         }
         else {
@@ -212,7 +221,7 @@ int main(int argc, char *argv[])
         exit(1);
     }
     else {
-        fprintf(stdout, "Agent forwarding request succeeded!\n");
+        fprintf(stdout, "Agent forwarding request succeeded.\n");
     }
     while((rc = libssh2_channel_exec(channel, commandline)) ==
           LIBSSH2_ERROR_EAGAIN) {
@@ -239,11 +248,10 @@ int main(int argc, char *argv[])
             else {
                 if(nread != LIBSSH2_ERROR_EAGAIN)
                     /* no need to output this for the EAGAIN case */
-                    fprintf(stderr, "libssh2_channel_read returned %d\n",
-                            (int)nread);
+                    fprintf(stderr, "libssh2_channel_read returned %ld\n",
+                            (long)nread);
             }
-        }
-        while(nread > 0);
+        } while(nread > 0);
 
         /* this is due to blocking that would occur otherwise so we loop on
            this condition */
@@ -267,8 +275,8 @@ int main(int argc, char *argv[])
         fprintf(stderr, "\nGot signal: %s\n", exitsignal);
     }
     else {
-        fprintf(stderr, "\nEXIT: %d bytecount: %d\n",
-                exitcode, (int)bytecount);
+        fprintf(stderr, "\nEXIT: %d bytecount: %ld\n",
+                exitcode, (long)bytecount);
     }
 
     libssh2_channel_free(channel);
@@ -283,16 +291,16 @@ shutdown:
 
     if(sock != LIBSSH2_INVALID_SOCKET) {
         shutdown(sock, 2);
-#ifdef WIN32
-        closesocket(sock);
-#else
-        close(sock);
-#endif
+        LIBSSH2_SOCKET_CLOSE(sock);
     }
 
     fprintf(stderr, "all done\n");
 
     libssh2_exit();
+
+#ifdef _WIN32
+    WSACleanup();
+#endif
 
     return 0;
 }

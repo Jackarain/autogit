@@ -1,10 +1,13 @@
-/*
+/* Copyright (C) The libssh2 project and its contributors.
+ *
  * Sample doing an SFTP directory listing.
  *
  * The sample code has default values for host name, user name, password and
  * path, but you can specify them on the command line like:
  *
  * $ ./sftpdir 192.168.0.1 user password /tmp/secretdir
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include "libssh2_setup.h"
@@ -28,9 +31,9 @@
 #include <string.h>
 
 #if defined(_MSC_VER)
-#define __FILESIZE "I64u"
+#define LIBSSH2_FILESIZE_MASK "I64u"
 #else
-#define __FILESIZE "llu"
+#define LIBSSH2_FILESIZE_MASK "llu"
 #endif
 
 static const char *pubkey = "/home/username/.ssh/id_rsa.pub";
@@ -71,7 +74,7 @@ int main(int argc, char *argv[])
     LIBSSH2_SFTP *sftp_session;
     LIBSSH2_SFTP_HANDLE *sftp_handle;
 
-#ifdef WIN32
+#ifdef _WIN32
     WSADATA wsadata;
 
     rc = WSAStartup(MAKEWORD(2, 0), &wsadata);
@@ -109,7 +112,7 @@ int main(int argc, char *argv[])
      */
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if(sock == LIBSSH2_INVALID_SOCKET) {
-        fprintf(stderr, "failed to create socket!\n");
+        fprintf(stderr, "failed to create socket.\n");
         goto shutdown;
     }
 
@@ -117,14 +120,14 @@ int main(int argc, char *argv[])
     sin.sin_port = htons(22);
     sin.sin_addr.s_addr = hostaddr;
     if(connect(sock, (struct sockaddr*)(&sin), sizeof(struct sockaddr_in))) {
-        fprintf(stderr, "failed to connect!\n");
+        fprintf(stderr, "failed to connect.\n");
         goto shutdown;
     }
 
     /* Create a session instance */
     session = libssh2_session_init();
     if(!session) {
-        fprintf(stderr, "Could not initialize SSH session!\n");
+        fprintf(stderr, "Could not initialize SSH session.\n");
         goto shutdown;
     }
 
@@ -180,7 +183,7 @@ int main(int argc, char *argv[])
         if(auth_pw & 1) {
             /* We could authenticate via password */
             if(libssh2_userauth_password(session, username, password)) {
-                fprintf(stderr, "Authentication by password failed!\n");
+                fprintf(stderr, "Authentication by password failed.\n");
                 goto shutdown;
             }
         }
@@ -189,7 +192,7 @@ int main(int argc, char *argv[])
             if(libssh2_userauth_keyboard_interactive(session, username,
                                                      &kbd_callback) ) {
                 fprintf(stderr,
-                        "Authentication by keyboard-interactive failed!\n");
+                        "Authentication by keyboard-interactive failed.\n");
                 goto shutdown;
             }
             else {
@@ -202,7 +205,7 @@ int main(int argc, char *argv[])
             if(libssh2_userauth_publickey_fromfile(session, username,
                                                    pubkey, privkey,
                                                    password)) {
-                fprintf(stderr, "Authentication by public key failed!\n");
+                fprintf(stderr, "Authentication by public key failed.\n");
                 goto shutdown;
             }
             else {
@@ -210,12 +213,12 @@ int main(int argc, char *argv[])
             }
         }
         else {
-            fprintf(stderr, "No supported authentication methods found!\n");
+            fprintf(stderr, "No supported authentication methods found.\n");
             goto shutdown;
         }
     }
 
-    fprintf(stderr, "libssh2_sftp_init()!\n");
+    fprintf(stderr, "libssh2_sftp_init().\n");
     sftp_session = libssh2_sftp_init(session);
 
     if(!sftp_session) {
@@ -226,7 +229,7 @@ int main(int argc, char *argv[])
     /* Since we have not set non-blocking, tell libssh2 we are blocking */
     libssh2_session_set_blocking(session, 1);
 
-    fprintf(stderr, "libssh2_sftp_opendir()!\n");
+    fprintf(stderr, "libssh2_sftp_opendir().\n");
     /* Request a dir listing via SFTP */
     sftp_handle = libssh2_sftp_opendir(sftp_session, sftppath);
     if(!sftp_handle) {
@@ -234,7 +237,7 @@ int main(int argc, char *argv[])
         goto shutdown;
     }
 
-    fprintf(stderr, "libssh2_sftp_opendir() is done, now receive listing!\n");
+    fprintf(stderr, "libssh2_sftp_opendir() is done, now receive listing.\n");
     do {
         char mem[512];
         char longentry[512];
@@ -268,7 +271,7 @@ int main(int argc, char *argv[])
                 }
 
                 if(attrs.flags & LIBSSH2_SFTP_ATTR_SIZE) {
-                    printf("%8" __FILESIZE " ", attrs.filesize);
+                    printf("%8" LIBSSH2_FILESIZE_MASK " ", attrs.filesize);
                 }
 
                 printf("%s\n", mem);
@@ -292,16 +295,16 @@ shutdown:
 
     if(sock != LIBSSH2_INVALID_SOCKET) {
         shutdown(sock, 2);
-#ifdef WIN32
-        closesocket(sock);
-#else
-        close(sock);
-#endif
+        LIBSSH2_SOCKET_CLOSE(sock);
     }
 
     fprintf(stderr, "all done\n");
 
     libssh2_exit();
+
+#ifdef _WIN32
+    WSACleanup();
+#endif
 
     return 0;
 }
