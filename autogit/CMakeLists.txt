@@ -41,6 +41,7 @@ add_executable(autogit
 
 target_link_libraries(autogit
 	Boost::asio
+	Boost::bimap
 	gitpp
 )
 
