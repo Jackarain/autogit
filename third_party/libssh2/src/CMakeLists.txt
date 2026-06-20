@@ -152,53 +152,18 @@ add_library(${LIB_NAME} ALIAS ${LIB_SELECTED})
 
 ## Installation
 
-install(FILES
-  "${PROJECT_SOURCE_DIR}/include/libssh2.h"
-  "${PROJECT_SOURCE_DIR}/include/libssh2_publickey.h"
-  "${PROJECT_SOURCE_DIR}/include/libssh2_sftp.h"
-  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-
-if(BUILD_STATIC_LIBS)
-  install(TARGETS ${LIB_STATIC}
-    EXPORT "${PROJECT_NAME}-targets"
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-endif()
-if(BUILD_SHARED_LIBS)
-  install(TARGETS ${LIB_SHARED}
-    EXPORT "${PROJECT_NAME}-targets"
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-
-  list(APPEND _RUNTIME_DEPENDENCIES $<TARGET_FILE:${LIB_SHARED}>)
-endif()
-
 set(RUNTIME_DEPENDENCIES ${_RUNTIME_DEPENDENCIES} CACHE INTERNAL
   "Files that must be in the same directory as the executables at runtime.")
 
 # Package config
 
 ## During package installation, install libssh2-targets.cmake
-install(EXPORT "${PROJECT_NAME}-targets"
-  NAMESPACE "${PROJECT_NAME}::"
-  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
 
 ## During build, register directly from build tree
 # create libssh2-targets.cmake
-export(TARGETS ${_libssh2_export} NAMESPACE "${PROJECT_NAME}::" FILE "${PROJECT_NAME}-targets.cmake")
-export(PACKAGE ${PROJECT_NAME})  # register it
 
 # Generate libssh2-config.cmake into build tree and install it with dependencies
 configure_file("${PROJECT_SOURCE_DIR}/cmake/libssh2-config.cmake.in" "${PROJECT_NAME}-config.cmake" @ONLY)
-install(
-  FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
-    "${PROJECT_SOURCE_DIR}/cmake/FindLibgcrypt.cmake"
-    "${PROJECT_SOURCE_DIR}/cmake/FindMbedTLS.cmake"
-    "${PROJECT_SOURCE_DIR}/cmake/FindWolfSSL.cmake"
-  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
 
 # Calculate variables for pkg-config
 set(LIBSSH2_PC_LIBS_PRIVATE "")
@@ -325,9 +290,6 @@ endif()
 #   libdir
 #   prefix
 configure_file("${PROJECT_SOURCE_DIR}/libssh2.pc.in" "libssh2.pc" @ONLY)
-install(
-  FILES "${CMAKE_CURRENT_BINARY_DIR}/libssh2.pc"
-  DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
 
 #
 
@@ -336,6 +298,3 @@ write_basic_package_version_file(
   "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config-version.cmake"
   VERSION "${LIBSSH2_VERSION_MAJOR}.${LIBSSH2_VERSION_MINOR}.${LIBSSH2_VERSION_PATCH}"
   COMPATIBILITY SameMajorVersion)
-install(
-  FILES "${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config-version.cmake"
-  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")

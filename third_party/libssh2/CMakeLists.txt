@@ -88,11 +88,6 @@ if(NOT LIBSSH2_VERSION OR
 endif()
 
 include(GNUInstallDirs)
-install(
-  FILES
-    COPYING NEWS README RELEASE-NOTES
-    docs/AUTHORS docs/BINDINGS.md docs/HACKING.md
-  DESTINATION ${CMAKE_INSTALL_DOCDIR})
 
 include(PickyWarnings)
 
