@@ -11,7 +11,7 @@ jobs:
       - run: sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 10
       - run: mkdir build && cd build && cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release && ninja
       - name: Archive artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: autogit
           path: build/bin/autogit
