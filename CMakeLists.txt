@@ -94,6 +94,25 @@ set(CMAKE_C_STANDARD 11)
 
 ################################################################################
 
+if(WIN32)
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+	add_definitions(
+		-DWIN32_LEAN_AND_MEAN
+		-D_WIN32_WINNT=0x0A00
+		#-DNOMINMAX # Comment out NOMINMAX for wolfSSL dependency on min/max macro in MSVC.
+		-DUNICODE
+		-D_UNICODE
+	)
+
+	add_definitions(
+		-DBOOST_ALL_STATIC_LINK
+		-DBOOST_THREAD_USE_LIB
+		-DBOOST_FILESYSTEM_STATIC_LINK
+	)
+
+endif()
+
 if (MSVC)
 	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
@@ -107,19 +126,10 @@ if (MSVC)
 	)
 
 	add_definitions(
-		-DWIN32_LEAN_AND_MEAN
-		-D_WIN32_WINNT=0x0601
-		-DNOMINMAX
-		-DUNICODE
-		-D_UNICODE
 		-D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS
-	)
-
-	add_definitions(
-		-DBOOST_ALL_STATIC_LINK
-		-DBOOST_THREAD_USE_LIB
-		-DBOOST_FILESYSTEM_STATIC_LINK
-		-DBOOST_USE_WINAPI_VERSION=0x0601
+		-D_SILENCE_ALL_CXX23_DEPRECATION_WARNINGS
+		-D_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING
+		-D_SILENCE_ALL_MS_EXT_DEPRECATION_WARNINGS
 	)
 
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj /MP /Zc:__cplusplus")
@@ -137,28 +147,6 @@ if (MSVC)
 		set(CMAKE_CXX_STANDARD 17)
 		set(CMAKE_CXX_STANDARD_REQUIRED ON)
 		message(STATUS "Set default cxx standard: C++17")
-	endif()
-elseif(WIN32)
-	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-
-	add_definitions(
-		-DWIN32_LEAN_AND_MEAN
-		-D_WIN32_WINNT=0x0601
-		-DNOMINMAX
-		-DUNICODE
-		-D_UNICODE
-		-D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS
-	)
-
-	add_definitions(
-		-DBOOST_ALL_STATIC_LINK
-		-DBOOST_THREAD_USE_LIB
-		-DBOOST_FILESYSTEM_STATIC_LINK
-		-DBOOST_USE_WINAPI_VERSION=0x0601
-	)
-
-	if (NOT MINGW)
-		add_compile_options(/utf8)
 	endif()
 endif()
 
