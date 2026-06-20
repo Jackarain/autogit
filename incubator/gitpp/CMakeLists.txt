@@ -19,7 +19,7 @@ target_include_directories(gitpp
 
 target_link_libraries(gitpp
 	PUBLIC
-		git2
+		libgit2package
 )
 
 # Require C++20  (for std::source_location, std::span, spaceship operator, etc.)

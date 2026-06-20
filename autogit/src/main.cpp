@@ -274,7 +274,7 @@ int gitwork(gitpp::repo& repo)
 			gitpp::signature signature(global_git_author, global_git_email);
 
 			// 从树对象创建一个新的提交.
-			repo.create_commit("HEAD",
+			(void)repo.create_commit("HEAD",
 				signature,
 				signature,
 				global_commit_message,
@@ -357,7 +357,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 
 		try
 		{
-			gitpp::init_repo(git_dir, global_git_remote_url);
+			(void)gitpp::init_repo(git_dir, global_git_remote_url);
 		}
 		catch (const std::exception& e)
 		{
