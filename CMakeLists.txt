@@ -67,19 +67,28 @@ option(ENABLE_SYSTEM_ZLIB			"Build with system zlib support" OFF)
 option(ENABLE_SYSTEM_OPENSSL		"Build with system openssl support" OFF)
 option(ENABLE_SYSTEM_LIBSSH2		"Build with system libssh2 support" OFF)
 
-
-option(ENABLE_MOLD					"build using mold" OFF)
-option(ENABLE_LLD					"build using lld" OFF)
+option(ENABLE_MOLD					"Build using mold" OFF)
+option(ENABLE_LLD					"Build using lld" OFF)
+option(ENABLE_USE_CCACHE			"Using ccache for fast compile" OFF)
 
 option(ENABLE_TCMALLOC_STATIC		"Build with Tcmalloc support" OFF)
 option(ENABLE_JEMALLOC_STATIC		"Build with Jemalloc support" OFF)
 
 option(ENABLE_STATIC_LINK_TO_GCC	"Build static link to gcc" ON)
 
+option(ENABLE_USE_OPENSSL			"Build with openssl support" ON)
+
 ################################################################################
 
 find_program(MOLD_LINKER mold)
 find_program(LLD_LINKER lld)
+find_program(CCACHE_PROGRAM ccache)
+
+if (CCACHE_PROGRAM AND ENABLE_USE_CCACHE)
+    message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER   "${CCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+endif()
 
 set(CMAKE_C_STANDARD 11)
 
@@ -182,10 +191,6 @@ if (COMPILER_HAS_FCOROUTINES_TS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines-ts")
 endif()
 
-if (ENABLE_SYSTEMD_LOGGING)
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_SYSTEMD_LOGGING")
-endif()
-
 ################################################################################
 
 if (NOT MSVC)
@@ -219,6 +224,7 @@ if (NOT MSVC)
 	if (ANDROID)
 		set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fPIE -pie")
 	endif()
+
 	if (COMPILER_HAS_STD_CXX20)
 		set(CMAKE_CXX_STANDARD 20)
 		add_definitions(-DUSE_STD_STRING_VIEW)
@@ -244,46 +250,42 @@ if (NOT MSVC)
 endif(NOT MSVC)
 
 ################################################################################
+# 使用 openssl
 
-if (ENABLE_SYSTEM_OPENSSL)
-	find_package(OpenSSL)
-else()
-	set(OPENSSL_FOUND TRUE)
-	set(OPENSSL_ROOT_DIR
-		${CMAKE_CURRENT_SOURCE_DIR}/third_party/openssl
-		${CMAKE_BINARY_DIR}/third_party/openssl/crypto/Debug
-		${CMAKE_BINARY_DIR}/third_party/openssl/ssl/Debug
-		${CMAKE_BINARY_DIR}/third_party/openssl/crypto/Release
-		${CMAKE_BINARY_DIR}/third_party/openssl/ssl/Release
-	)
-
-	add_subdirectory(third_party/openssl)
-	if (MSVC)
-		add_definitions(-DSIXTY_FOUR_BIT)
+if (ENABLE_USE_OPENSSL)
+	if (ENABLE_SYSTEM_OPENSSL)
+		find_package(OpenSSL)
 	else()
-		add_definitions(-DSIXTY_FOUR_BIT_LONG)
-	endif()
-	if (NOT MSVC AND NOT APPLE)
-		if (NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang"))
-			set(CMAKE_SHARED_LINKER_FLAGS "-Wl,--exclude-libs,ALL ${CMAKE_SHARED_LINKER_FLAGS}")
-			set(CMAKE_MODULE_LINKER_FLAGS "-Wl,--exclude-libs,ALL ${CMAKE_MODULE_LINKER_FLAGS}")
-			set(CMAKE_EXE_LINKER_FLAGS "-Wl,--exclude-libs,ALL ${CMAKE_EXE_LINKER_FLAGS}")
+		set(OpenSSL_FOUND TRUE)
+		add_subdirectory(third_party/openssl)
+		if (MSVC)
+			add_definitions(-DSIXTY_FOUR_BIT)
+		else()
+			add_definitions(-DSIXTY_FOUR_BIT_LONG)
 		endif()
+		if (NOT MSVC AND NOT APPLE)
+			if (NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang"))
+				set(CMAKE_SHARED_LINKER_FLAGS "-Wl,--exclude-libs,ALL ${CMAKE_SHARED_LINKER_FLAGS}")
+				set(CMAKE_MODULE_LINKER_FLAGS "-Wl,--exclude-libs,ALL ${CMAKE_MODULE_LINKER_FLAGS}")
+				set(CMAKE_EXE_LINKER_FLAGS "-Wl,--exclude-libs,ALL ${CMAKE_EXE_LINKER_FLAGS}")
+			endif()
+		endif()
+		add_library(OpenSSL::SSL ALIAS ssl)
+		add_library(OpenSSL::Crypto ALIAS crypto)
 	endif()
+	include_directories(${OPENSSL_INCLUDE_DIR})
+	message(STATUS "Using openssl...")
 endif()
-include_directories(${OPENSSL_INCLUDE_DIR})
 
 ################################################################################
 
-set(BUILD_ASIO_BEAST ON)
-set(USE_BOOST_FILESYSTEM ON)
-
-if (ENABLE_BUILD_TESTS)
-	set(USE_BOOST_TEST ON)
-endif()
-
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
+
+#默认使用 boost.filesystem 而不是 std.filesystem, 这是因为
+#std.filesystem 在 GCC-12.3 以下的版本在非 ASCII 中会构造失败
+#参考链接:https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95048
+add_definitions(-DUSE_BOOST_FILESYSTEM)
 
 #独立编译asio时, 必须要在使用者项目定义, 否则会将
 #定义BOOST_ASIO_HEADER_ONLY, 使用者将会导致符号冲突.
@@ -301,21 +303,47 @@ add_definitions(-DBOOST_DISABLE_PRAGMA_MESSAGE)
 add_definitions(-DBOOST_COROUTINES_NO_DEPRECATION_WARNING)
 add_definitions(-DBOOST_PROCESS_USE_STD_FS)
 if (ENABLE_USE_IO_URING)
-	find_package(IOUring)
+    find_package(IOUring)
 
-	if (IOUring_FOUND)
-		message(STATUS "Linux using io_uring...")
-		add_definitions(-DBOOST_ASIO_HAS_IO_URING -DBOOST_ASIO_DISABLE_EPOLL)
-		link_libraries(${IOUring_LIBRARIES})
-	endif()
+    if (IOUring_FOUND)
+        message(STATUS "Linux using io_uring...")
+        add_definitions(-DBOOST_ASIO_HAS_IO_URING -DBOOST_ASIO_DISABLE_EPOLL)
+        link_libraries(${IOUring_LIBRARIES})
+    endif()
 endif()
 
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-	add_definitions(-DBOOST_ASIO_HAS_CO_AWAIT)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    add_definitions(-DBOOST_ASIO_HAS_CO_AWAIT)
 endif()
+
+set(BOOST_IOSTREAMS_ENABLE_ZSTD OFF)
+set(BOOST_IOSTREAMS_ENABLE_LZMA OFF)
+set(BOOST_IOSTREAMS_ENABLE_BZIP2 OFF)
+set(BOOST_IOSTREAMS_ENABLE_ZLIB OFF)
+
+set(BOOST_ASIO_BUILD_CONTEXT OFF)
+set(BOOST_EXCLUDE_LIBRARIES "context;coroutine;fiber;iostreams;graph;math;stacktrace;redis;mysql;multiprecision;log;iostreams;charconv;locale")
 
 set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/boost)
 add_subdirectory(third_party/boost EXCLUDE_FROM_ALL)
+
+set_property(TARGET boost_assert PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_container PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_atomic PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_chrono PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_core PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_date_time PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_exception PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_filesystem PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_json PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_url PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_nowide PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_program_options PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_system PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_thread PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_variant2 PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_unordered PROPERTY FOLDER "third_party/boost")
+set_property(TARGET boost_optional PROPERTY FOLDER "third_party/boost")
 
 ################################################################################
 find_package(Threads)
