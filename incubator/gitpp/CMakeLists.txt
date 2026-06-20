@@ -1,5 +1,5 @@
 
-# gitpp  –  Modern C++ wrapper around libgit2
+# gitpp  –  Modern C++20 wrapper around libgit2
 # =========================================================================
 
 file(GLOB gitpp_sources
@@ -22,13 +22,8 @@ target_link_libraries(gitpp
 		git2
 )
 
-target_include_directories(gitpp
-	PUBLIC
-		${Boost_INCLUDE_DIRS}
-)
-
-# Require C++17 (for std::string_view, std::filesystem)
-target_compile_features(gitpp PUBLIC cxx_std_17)
+# Require C++20  (for std::source_location, std::span, spaceship operator, etc.)
+target_compile_features(gitpp PUBLIC cxx_std_20)
 
 set_target_properties(gitpp PROPERTIES
 	FOLDER                          "incubator"

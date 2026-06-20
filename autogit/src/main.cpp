@@ -168,7 +168,7 @@ int gitwork(gitpp::repo& repo)
 	for (const git_status_entry* entry : status)
 	{
 		auto& old_file_path = entry->index_to_workdir->old_file.path;
-		auto handle = index.native_handle();
+		auto handle = index.native();
 		int ret = 0;
 
 		switch (entry->status & 0xfffffff0)
@@ -237,7 +237,7 @@ int gitwork(gitpp::repo& repo)
 
 	if (commit_count > 0)
 	{
-		if (git_index_write(index.native_handle()) != 0)
+		if (git_index_write(index.native()) != 0)
 		{
 			LOG_DBG << "git_index_write, err: "
 				<< git_error_last()->message;
@@ -250,18 +250,18 @@ int gitwork(gitpp::repo& repo)
 		// 当一个新仓库刚创建时 HEAD 并没有指向一个有效的 Commit, 这时
 		// 强行创建一个 Commit 交将 HEAD 指向这个 Initial Commit.
 		auto head = repo.head();
-		if (head == gitpp::reference((git_reference*)nullptr))
+		if (!head)
 		{
 			git_oid commit_id;
 			gitpp::signature signature(global_git_author, global_git_email);
 			git_commit_create_v(&commit_id,
-				repo.native_handle(),
+				repo.native(),
 				"HEAD",
-				signature.native_handle(),
-				signature.native_handle(),
+				signature.native(),
+				signature.native(),
 				nullptr,
 				global_commit_message.c_str(),
-				tree.native_handle(),
+				tree.native_tree(),
 				0);
 		}
 		else
@@ -314,7 +314,7 @@ int gitwork(gitpp::repo& repo)
 	if (global_force_push)
 		arr.strings = force_refspec;
 
-	if (git_remote_push(remote.native_handle(), &arr, &options) != 0)
+	if (git_remote_push(remote.native(), &arr, &options) != 0)
 	{
 		LOG_DBG << "git_remote_push, err: "
 			<< git_error_last()->message;
@@ -355,11 +355,16 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 			}
 		}
 
-		if (!gitpp::init_git_repo(git_dir, global_git_remote_url))
+		try
+		{
+			gitpp::init_repo(git_dir, global_git_remote_url);
+		}
+		catch (const std::exception& e)
 		{
 			LOG_ERR << "init git repo: '"
 				<< git_dir
-				<< "' failure";
+				<< "' failure: "
+				<< e.what();
 			co_return EXIT_FAILURE;
 		}
 	}
