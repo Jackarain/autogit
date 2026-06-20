@@ -175,7 +175,7 @@ namespace watchman {
 				const inotify_event* ev =
 					(const inotify_event*)(m_bufs_pending.data());
 
-				if (ev->mask == IN_IGNORED)
+				if (ev->mask & IN_IGNORED)
 				{
 					m_bufs_pending.erase(0, sizeof(inotify_event) + ev->len);
 					continue;
@@ -222,7 +222,7 @@ namespace watchman {
 
 				if (add)
 					add_directory(filename);
-				else if (ev->mask == (IN_DELETE | IN_ISDIR))
+				else if ((ev->mask & (IN_DELETE | IN_ISDIR)) == (IN_DELETE | IN_ISDIR))
 					remove_directory(filename);
 
 				result.push_back(notify);

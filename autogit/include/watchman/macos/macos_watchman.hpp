@@ -14,11 +14,14 @@
 #include <iostream>
 #include <mutex>
 #include <string>
+#include <vector>
+#include <iterator>
+#include <cstring>
+#include <utility>
 
 #include <boost/asio/post.hpp>
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/async_result.hpp>
-#include <boost/asio/posix/stream_descriptor.hpp>
 #include <boost/asio/associated_cancellation_slot.hpp>
 
 #include <boost/filesystem.hpp>
@@ -47,17 +50,47 @@ namespace watchman {
         {
             open(dir);
         }
+
         explicit macos_watch_service(const Executor& ex)
             : m_executor(ex)
         {}
+
         ~macos_watch_service()
         {
             boost::system::error_code ignore_ec;
             close(ignore_ec);
         }
 
-        macos_watch_service(macos_watch_service&&) = default;
-        macos_watch_service& operator=(macos_watch_service&&) = default;
+        // 自定义移动语义：关闭源对象的流后转移所有权，避免原始指针双重释放。
+        macos_watch_service(macos_watch_service&& other) noexcept
+            : m_executor(std::move(other.m_executor))
+            , m_watch_dir(std::move(other.m_watch_dir))
+            , m_stream(other.m_stream)
+            , m_fsevents_queue(other.m_fsevents_queue)
+            , m_events(std::move(other.m_events))
+        {
+            other.m_stream = nullptr;
+            other.m_fsevents_queue = nullptr;
+        }
+
+        macos_watch_service& operator=(macos_watch_service&& other) noexcept
+        {
+            if (this != &other)
+            {
+                boost::system::error_code ignore_ec;
+                close(ignore_ec);
+
+                m_executor = std::move(other.m_executor);
+                m_watch_dir = std::move(other.m_watch_dir);
+                m_stream = other.m_stream;
+                m_fsevents_queue = other.m_fsevents_queue;
+                m_events = std::move(other.m_events);
+
+                other.m_stream = nullptr;
+                other.m_fsevents_queue = nullptr;
+            }
+            return *this;
+        }
 
     public:
         inline void open(const fs::path& dir, boost::system::error_code& ec)
@@ -67,11 +100,25 @@ namespace watchman {
             CFStringRef dir_ref = CFStringCreateWithCString(
                 nullptr, dir.c_str(), kCFStringEncodingUTF8);
 
+            if (!dir_ref)
+            {
+                ec.assign(errno, boost::system::generic_category());
+                return;
+            }
+
             CFArrayRef paths =
                 CFArrayCreate(nullptr,
-                    reinterpret_cast<const void **> (&dir_ref),
-                    1.f,
+                    reinterpret_cast<const void**>(&dir_ref),
+                    1,
                     &kCFTypeArrayCallBacks);
+
+            CFRelease(dir_ref);
+
+            if (!paths)
+            {
+                ec.assign(errno, boost::system::generic_category());
+                return;
+            }
 
             auto context = &m_stream_ctx;
 
@@ -83,11 +130,9 @@ namespace watchman {
 
             FSEventStreamCreateFlags streamFlags = kFSEventStreamCreateFlagFileEvents;
             streamFlags |= kFSEventStreamCreateFlagNoDefer;
-
-// #if defined (HAVE_MACOS_GE_10_13)
             streamFlags |= kFSEventStreamCreateFlagUseExtendedData;
             streamFlags |= kFSEventStreamCreateFlagUseCFTypes;
-// #endif
+
             m_stream = FSEventStreamCreate(nullptr,
                                  &macos_watch_service<Executor>::fsevents_callback,
                                  context,
@@ -95,6 +140,8 @@ namespace watchman {
                                  kFSEventStreamEventIdSinceNow,
                                  1,
                                  streamFlags);
+
+            CFRelease(paths);
 
             if (!m_stream)
             {
@@ -122,9 +169,13 @@ namespace watchman {
             FSEventStreamStop(m_stream);
             FSEventStreamInvalidate(m_stream);
             FSEventStreamRelease(m_stream);
-            dispatch_release(m_fsevents_queue);
-
             m_stream = nullptr;
+
+            if (m_fsevents_queue)
+            {
+                dispatch_release(m_fsevents_queue);
+                m_fsevents_queue = nullptr;
+            }
         }
 
         void close()
@@ -156,16 +207,14 @@ namespace watchman {
         {
             notify_events es;
 
-            // 不阻塞异步调用.
-            if (m_stream && m_event_mtx.try_lock())
+            // 安全获取锁并交换事件队列，避免 try_lock 丢失事件。
             {
-                es = m_events;
-                m_events.clear();
-
-                m_event_mtx.unlock();
+                std::lock_guard<std::mutex> lock(m_event_mtx);
+                es.swap(m_events);
+                // m_events 已为空，es 持有原事件列表。
             }
 
-            // 使用 post 避免直接调用 handler 造成递归调用而爆栈.
+            // 使用 post 避免直接调用 handler 造成递归调用而爆栈。
             net::post(m_executor,
                 [handler = std::move(handler), es = std::move(es)]() mutable
                 {
@@ -175,31 +224,52 @@ namespace watchman {
         }
 
         static void fsevents_callback(ConstFSEventStreamRef streamRef,
-                                  void *clientCallBackInfo,
+                                  void* clientCallBackInfo,
                                   size_t numEvents,
-                                  void *eventPaths,
+                                  void* eventPaths,
                                   const FSEventStreamEventFlags eventFlags[],
                                   const FSEventStreamEventId eventIds[])
         {
             using self_type = macos_watch_service<Executor>;
-            auto* fse_monitor = (self_type*) (clientCallBackInfo);
+            auto* fse_monitor = static_cast<self_type*>(clientCallBackInfo);
 
-            std::lock_guard lock(fse_monitor->m_event_mtx);
-
-            bool remove = false;
-            if (fse_monitor->m_events.size() > 10000000)
-                remove = true;
+            CFArrayRef event_array = static_cast<CFArrayRef>(eventPaths);
+            std::vector<notify_event> batch;
+            batch.reserve(numEvents);
 
             for (size_t i = 0; i < numEvents; ++i)
             {
-                auto path_info_dict = reinterpret_cast<CFDictionaryRef>(
-                    CFArrayGetValueAtIndex((CFArrayRef) eventPaths, i));
-                auto path = reinterpret_cast<CFStringRef>(
+                auto path_info_dict = static_cast<CFDictionaryRef>(
+                    CFArrayGetValueAtIndex(event_array, i));
+
+                auto path_cfstr = static_cast<CFStringRef>(
                     CFDictionaryGetValue(path_info_dict,
                         kFSEventStreamEventExtendedDataPathKey));
 
+                if (!path_cfstr)
+                    continue;
+
+                // 安全地将 CFString 转换为 std::string。
+                // CFStringGetCStringPtr 可能返回 NULL，使用 CFStringGetCString 替代。
+                CFIndex length = CFStringGetLength(path_cfstr);
+                CFIndex max_size = CFStringGetMaximumSizeForEncoding(
+                    length, kCFStringEncodingUTF8) + 1;
+
+                std::string path_str;
+                path_str.resize(static_cast<std::string::size_type>(max_size));
+
+                if (!CFStringGetCString(path_cfstr, &path_str[0],
+                        max_size, kCFStringEncodingUTF8))
+                {
+                    continue;
+                }
+
+                // 按实际长度调整（不含空终止符）。
+                path_str.resize(std::strlen(path_str.c_str()));
+
                 notify_event event;
-                event.path_ = std::string(CFStringGetCStringPtr(path, kCFStringEncodingUTF8));
+                event.path_ = std::move(path_str);
+
                 if (eventFlags[i] & kFSEventStreamEventFlagItemCreated) {
                     event.type_ = event_type::creation;
                 } else if (eventFlags[i] & kFSEventStreamEventFlagItemRemoved) {
@@ -212,23 +282,41 @@ namespace watchman {
                     event.type_ = event_type::unknown;
                 }
 
-                fse_monitor->m_events.push_back(event);
-                if (remove)
-                    fse_monitor->m_events.pop_front();
+                batch.push_back(std::move(event));
             }
+
+            if (batch.empty())
+                return;
+
+            std::lock_guard<std::mutex> lock(fse_monitor->m_event_mtx);
+
+            // 限制事件队列大小，防止无限增长。
+            constexpr std::size_t max_events = 100000;
+            if (fse_monitor->m_events.size() > max_events)
+            {
+                fse_monitor->m_events.erase(
+                    fse_monitor->m_events.begin(),
+                    fse_monitor->m_events.begin() +
+                        (fse_monitor->m_events.size() - max_events));
+            }
+
+            fse_monitor->m_events.insert(
+                fse_monitor->m_events.end(),
+                std::make_move_iterator(batch.begin()),
+                std::make_move_iterator(batch.end()));
         }
 
         inline void throw_error(const boost::system::error_code& err,
-			boost::source_location const& loc = BOOST_CURRENT_LOCATION)
-		{
-			if (err)
-				boost::throw_exception(boost::system::system_error{ err }, loc);
-		}
+            boost::source_location const& loc = BOOST_CURRENT_LOCATION)
+        {
+            if (err)
+                boost::throw_exception(boost::system::system_error{ err }, loc);
+        }
 
     private:
         Executor m_executor;
         fs::path m_watch_dir;
-        FSEventStreamContext m_stream_ctx;
+        FSEventStreamContext m_stream_ctx{};
         FSEventStreamRef m_stream = nullptr;
         dispatch_queue_t m_fsevents_queue = nullptr;
         std::mutex m_event_mtx;

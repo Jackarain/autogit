@@ -23,6 +23,10 @@ namespace po = boost::program_options;
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
+// 当定义了 BOOST_ASIO_SEPARATE_COMPILATION 时，
+// 需要在一个编译单元中包含如下文件以编译 Asio 源码。
+#include <boost/asio/impl/src.hpp>
+
 namespace net = boost::asio;
 
 #include <boost/filesystem.hpp>
@@ -407,7 +411,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 			{
 				net::steady_timer timer(executor);
 
-				timer.expires_from_now(std::chrono::seconds(check_interval));
+				timer.expires_after(std::chrono::seconds(check_interval));
 				co_await timer.async_wait(net::use_awaitable);
 			}
 		}
