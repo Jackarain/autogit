@@ -153,6 +153,7 @@ int git_win32_path_canonicalize(git_win32_path path)
 
 static int git_win32_path_join(
 	git_win32_path dest,
+	size_t *dest_len,
 	const wchar_t *one,
 	size_t one_len,
 	const wchar_t *two,
@@ -175,6 +176,9 @@ static int git_win32_path_join(
 
 	memcpy(dest + one_len + backslash, two, two_len * sizeof(wchar_t));
 	dest[one_len + backslash + two_len] = L'\0';
+
+	if (dest_len)
+		*dest_len = one_len + backslash + two_len;
 
 	return 0;
 }
@@ -253,21 +257,92 @@ static void win32_path_iter_dispose(struct win32_path_iter *iter)
 	iter->current_dir = NULL;
 }
 
+struct executable_suffix {
+	const wchar_t *suffix;
+	size_t len;
+};
+
+static struct executable_suffix suffixes[] = { { NULL, 0 }, { L".exe", 4 }, { L".cmd", 4 } };
+
+static bool has_executable_suffix(wchar_t *exe, size_t exe_len)
+{
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(suffixes); i++) {
+		struct executable_suffix *suffix = &suffixes[i];
+
+		if (!suffix->len)
+			continue;
+
+		if (exe_len < suffix->len)
+			continue;
+
+		if (memcmp(&exe[exe_len - suffix->len], suffix->suffix, suffix->len) == 0)
+			return true;
+	}
+
+	return false;
+}
+
+static int is_executable(git_win32_path path, size_t path_len, bool suffixed)
+{
+	size_t i;
+
+	/*
+	 * if the given name has an executable suffix, then try looking for it
+	 * directly. in all cases, append executable extensions
+	 * (".exe", ".cmd"...)
+	 */
+	for (i = suffixed ? 0 : 1; i < ARRAY_SIZE(suffixes); i++) {
+		struct executable_suffix *suffix = &suffixes[i];
+
+		if (suffix->len) {
+			if (path_len + suffix->len > MAX_PATH)
+				continue;
+
+			wcscat(path, suffix->suffix);
+		}
+
+		if (_waccess(path, 0) == 0)
+			return true;
+
+		path[path_len] = L'\0';
+	}
+
+	return false;
+}
+
 int git_win32_path_find_executable(git_win32_path fullpath, wchar_t *exe)
 {
 	struct win32_path_iter path_iter;
 	const wchar_t *dir;
-	size_t dir_len, exe_len = wcslen(exe);
-	bool found = false;
+	size_t dir_len, exe_len, fullpath_len;
+	bool suffixed = false, found = false;
+
+	if ((exe_len = wcslen(exe)) > MAX_PATH)
+		goto done;
+
+	/* see if the given executable has an executable suffix; if so we will
+	 * look for the explicit name directly, as well as with added suffixes.
+	 */
+	suffixed = has_executable_suffix(exe, exe_len);
+
+	/* For fully-qualified paths we do not look in PATH */
+	if (wcschr(exe, L'\\') != NULL || wcschr(exe, L'/') != NULL) {
+		if ((found = is_executable(exe, exe_len, suffixed)))
+			wcscpy(fullpath, exe);
+
+		goto done;
+	}
 
 	if (win32_path_iter_init(&path_iter) < 0)
 		return -1;
 
-	while (win32_path_iter_next(&dir, &dir_len, &path_iter) != GIT_ITEROVER) {
-		if (git_win32_path_join(fullpath, dir, dir_len, exe, exe_len) < 0)
+	while (win32_path_iter_next(&dir, &dir_len, &path_iter) != GIT_ITEROVER && !found) {
+		if (git_win32_path_join(fullpath, &fullpath_len, dir, dir_len, exe, exe_len) < 0)
 			continue;
 
-		if (_waccess(fullpath, 0) == 0) {
+		if (is_executable(fullpath, fullpath_len, suffixed)) {
 			found = true;
 			break;
 		}
@@ -275,6 +350,7 @@ int git_win32_path_find_executable(git_win32_path fullpath, wchar_t *exe)
 
 	win32_path_iter_dispose(&path_iter);
 
+done:
 	if (found)
 		return 0;
 
@@ -336,13 +412,13 @@ int git_win32_path_from_utf8(git_win32_path out, const char *src)
 
 	/* See if this is an absolute path (beginning with a drive letter) */
 	if (git_fs_path_is_absolute(src)) {
-		if (git__utf8_to_16(dest, GIT_WIN_PATH_MAX, src) < 0)
+		if (git_utf8_to_16(dest, GIT_WIN_PATH_MAX, src) < 0)
 			goto on_error;
 	}
 	/* File-prefixed NT-style paths beginning with \\?\ */
 	else if (path__is_nt_namespace(src)) {
 		/* Skip the NT prefix, the destination already contains it */
-		if (git__utf8_to_16(dest, GIT_WIN_PATH_MAX, src + PATH__NT_NAMESPACE_LEN) < 0)
+		if (git_utf8_to_16(dest, GIT_WIN_PATH_MAX, src + PATH__NT_NAMESPACE_LEN) < 0)
 			goto on_error;
 	}
 	/* UNC paths */
@@ -351,7 +427,7 @@ int git_win32_path_from_utf8(git_win32_path out, const char *src)
 		dest += 4;
 
 		/* Skip the leading "\\" */
-		if (git__utf8_to_16(dest, GIT_WIN_PATH_MAX - 2, src + 2) < 0)
+		if (git_utf8_to_16(dest, GIT_WIN_PATH_MAX - 2, src + 2) < 0)
 			goto on_error;
 	}
 	/* Absolute paths omitting the drive letter */
@@ -365,7 +441,7 @@ int git_win32_path_from_utf8(git_win32_path out, const char *src)
 		}
 
 		/* Skip the drive letter specification ("C:") */
-		if (git__utf8_to_16(dest + 2, GIT_WIN_PATH_MAX - 2, src) < 0)
+		if (git_utf8_to_16(dest + 2, GIT_WIN_PATH_MAX - 2, src) < 0)
 			goto on_error;
 	}
 	/* Relative paths */
@@ -377,7 +453,7 @@ int git_win32_path_from_utf8(git_win32_path out, const char *src)
 
 		dest[cwd_len++] = L'\\';
 
-		if (git__utf8_to_16(dest + cwd_len, GIT_WIN_PATH_MAX - cwd_len, src) < 0)
+		if (git_utf8_to_16(dest + cwd_len, GIT_WIN_PATH_MAX - cwd_len, src) < 0)
 			goto on_error;
 	}
 
@@ -404,7 +480,7 @@ int git_win32_path_relative_from_utf8(git_win32_path out, const char *src)
 		return git_win32_path_from_utf8(out, src);
 	}
 
-	if ((len = git__utf8_to_16(dest, GIT_WIN_PATH_MAX, src)) < 0)
+	if ((len = git_utf8_to_16(dest, GIT_WIN_PATH_MAX, src)) < 0)
 		return -1;
 
 	for (p = dest; p < (dest + len); p++) {
@@ -433,7 +509,7 @@ int git_win32_path_to_utf8(git_win32_utf8_path dest, const wchar_t *src)
 		}
 	}
 
-	if ((len = git__utf16_to_8(out, GIT_WIN_PATH_UTF8, src)) < 0)
+	if ((len = git_utf8_from_16(out, GIT_WIN_PATH_UTF8, src)) < 0)
 		return len;
 
 	git_fs_path_mkposix(dest);
@@ -471,7 +547,7 @@ char *git_win32_path_8dot3_name(const char *path)
 	if (namelen > 12 || (shortname = git__malloc(namelen + 1)) == NULL)
 		return NULL;
 
-	if ((len = git__utf16_to_8(shortname, namelen + 1, start)) < 0)
+	if ((len = git_utf8_from_16(shortname, namelen + 1, start)) < 0)
 		return NULL;
 
 	return shortname;

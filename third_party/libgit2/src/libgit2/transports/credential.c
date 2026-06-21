@@ -161,7 +161,7 @@ static void ssh_custom_free(struct git_credential *cred)
 
 	if (c->publickey) {
 		/* Zero the memory which previously held the publickey */
-		size_t key_len = strlen(c->publickey);
+		size_t key_len = c->publickey_len;
 		git__memzero(c->publickey, key_len);
 		git__free(c->publickey);
 	}
@@ -204,7 +204,7 @@ int git_credential_ssh_key_memory_new(
 	const char *privatekey,
 	const char *passphrase)
 {
-#ifdef GIT_SSH_MEMORY_CREDENTIALS
+#ifdef GIT_SSH_LIBSSH2_MEMORY_CREDENTIALS
 	return git_credential_ssh_key_type_new(
 		cred,
 		username,

@@ -1268,13 +1268,13 @@ static off64_t nth_packed_object_offset_locked(struct git_pack_file *p, uint32_t
 	end = index + p->index_map.len;
 	index += 4 * 256;
 	if (p->index_version == 1)
-		return ntohl(*((uint32_t *)(index + (p->oid_size + 4) * n)));
+		return ntohl(*((uint32_t *)(index + (p->oid_size + 4) * (size_t) n)));
 
-	index += 8 + p->num_objects * (p->oid_size + 4);
+	index += 8 + (size_t) p->num_objects * (p->oid_size + 4);
 	off32 = ntohl(*((uint32_t *)(index + 4 * n)));
 	if (!(off32 & 0x80000000))
 		return off32;
-	index += p->num_objects * 4 + (off32 & 0x7fffffff) * 8;
+	index += (size_t) p->num_objects * 4 + (off32 & 0x7fffffff) * 8;
 
 	/* Make sure we're not being sent out of bounds */
 	if (index >= end - 8)
@@ -1499,6 +1499,7 @@ static int pack_entry_find_offset(
 	size_t len)
 {
 	const uint32_t *level1_ofs;
+	size_t ofs_delta = 0;
 	const unsigned char *index;
 	unsigned hi, lo, stride;
 	int pos, found = 0;
@@ -1524,7 +1525,13 @@ static int pack_entry_find_offset(
 
 	if (p->index_version > 1) {
 		level1_ofs += 2;
+		ofs_delta = 2;
 		index += 8;
+	}
+
+	if ((size_t)short_oid->id[0] + ofs_delta >= p->index_map.len) {
+		git_error_set(GIT_ERROR_INTERNAL, "internal error: p->short_oid->[0] out of bounds");
+		goto cleanup;
 	}
 
 	index += 4 * 256;

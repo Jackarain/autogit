@@ -419,6 +419,16 @@ int git_fs_path_to_dir(git_str *path)
 	return git_str_oom(path) ? -1 : 0;
 }
 
+size_t git_fs_path_dirlen(const char *path)
+{
+	size_t len = strlen(path);
+
+	while (len > 1 && path[len - 1] == '/')
+		len--;
+
+	return len;
+}
+
 void git_fs_path_string_to_dir(char *path, size_t size)
 {
 	size_t end = strlen(path);
@@ -600,6 +610,37 @@ bool git_fs_path_isfile(const char *path)
 
 	return S_ISREG(st.st_mode) != 0;
 }
+
+#ifdef GIT_WIN32
+
+bool git_fs_path_isexecutable(const char *path)
+{
+	struct stat st;
+
+	GIT_ASSERT_ARG_WITH_RETVAL(path, false);
+
+	if (git__suffixcmp_icase(path, ".exe") != 0 &&
+	    git__suffixcmp_icase(path, ".cmd") != 0)
+		return false;
+
+	return (p_stat(path, &st) == 0);
+}
+
+#else
+
+bool git_fs_path_isexecutable(const char *path)
+{
+	struct stat st;
+
+	GIT_ASSERT_ARG_WITH_RETVAL(path, false);
+	if (p_stat(path, &st) < 0)
+		return false;
+
+	return S_ISREG(st.st_mode) != 0 &&
+	       ((st.st_mode & S_IXUSR) != 0);
+}
+
+#endif
 
 bool git_fs_path_islink(const char *path)
 {
@@ -1938,12 +1979,13 @@ static int sudo_uid_lookup(uid_t *out)
 {
 	git_str uid_str = GIT_STR_INIT;
 	int64_t uid;
-	int error;
+	int error = -1;
 
-	if ((error = git__getenv(&uid_str, "SUDO_UID")) == 0 &&
-	    (error = git__strntol64(&uid, uid_str.ptr, uid_str.size, NULL, 10)) == 0 &&
-	    uid == (int64_t)((uid_t)uid)) {
+	if (git__getenv(&uid_str, "SUDO_UID") == 0 &&
+		git__strntol64(&uid, uid_str.ptr, uid_str.size, NULL, 10) == 0 &&
+		uid == (int64_t)((uid_t)uid)) {
 		*out = (uid_t)uid;
+		error = 0;
 	}
 
 	git_str_dispose(&uid_str);
@@ -2009,13 +2051,14 @@ int git_fs_path_owner_is_system(bool *out, const char *path)
 	return git_fs_path_owner_is(out, path, GIT_FS_PATH_OWNER_ADMINISTRATOR);
 }
 
-int git_fs_path_find_executable(git_str *fullpath, const char *executable)
-{
 #ifdef GIT_WIN32
+
+static int find_executable(git_str *fullpath, const char *executable)
+{
 	git_win32_path fullpath_w, executable_w;
 	int error;
 
-	if (git__utf8_to_16(executable_w, GIT_WIN_PATH_MAX, executable) < 0)
+	if (git_utf8_to_16(executable_w, GIT_WIN_PATH_MAX, executable) < 0)
 		return -1;
 
 	error = git_win32_path_find_executable(fullpath_w, executable_w);
@@ -2024,9 +2067,15 @@ int git_fs_path_find_executable(git_str *fullpath, const char *executable)
 		error = git_str_put_w(fullpath, fullpath_w, wcslen(fullpath_w));
 
 	return error;
+}
+
 #else
+
+static int find_executable(git_str *fullpath, const char *executable)
+{
 	git_str path = GIT_STR_INIT;
 	const char *current_dir, *term;
+	size_t current_dirlen;
 	bool found = false;
 
 	if (git__getenv(&path, "PATH") < 0)
@@ -2038,20 +2087,28 @@ int git_fs_path_find_executable(git_str *fullpath, const char *executable)
 		if (! (term = strchr(current_dir, GIT_PATH_LIST_SEPARATOR)))
 			term = strchr(current_dir, '\0');
 
+		current_dirlen = term - current_dir;
 		git_str_clear(fullpath);
-		if (git_str_put(fullpath, current_dir, (term - current_dir)) < 0 ||
-		    git_str_putc(fullpath, '/') < 0 ||
+
+		/* An empty path segment is treated as '.' */
+		if (current_dirlen == 0 && git_str_putc(fullpath, '.'))
+			return -1;
+		else if (current_dirlen != 0 &&
+		         git_str_put(fullpath, current_dir, current_dirlen) < 0)
+			return -1;
+
+		if (git_str_putc(fullpath, '/') < 0 ||
 		    git_str_puts(fullpath, executable) < 0)
 			return -1;
 
-		if (git_fs_path_isfile(fullpath->ptr)) {
+		if (git_fs_path_isexecutable(fullpath->ptr)) {
 			found = true;
 			break;
 		}
 
 		current_dir = term;
 
-		while (*current_dir == GIT_PATH_LIST_SEPARATOR)
+		if (*current_dir == GIT_PATH_LIST_SEPARATOR)
 			current_dir++;
 	}
 
@@ -2062,5 +2119,19 @@ int git_fs_path_find_executable(git_str *fullpath, const char *executable)
 
 	git_str_clear(fullpath);
 	return GIT_ENOTFOUND;
+}
+
 #endif
+
+int git_fs_path_find_executable(git_str *fullpath, const char *executable)
+{
+	/* For qualified paths we do not look in PATH */
+	if (strchr(executable, '/') != NULL) {
+		if (!git_fs_path_isexecutable(executable))
+			return GIT_ENOTFOUND;
+
+		return git_str_puts(fullpath, executable);
+	}
+
+	return find_executable(fullpath, executable);
 }

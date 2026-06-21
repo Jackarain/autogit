@@ -57,6 +57,7 @@ extern int git__prefixcmp_icase(const char *str, const char *prefix);
 extern int git__prefixncmp(const char *str, size_t str_n, const char *prefix);
 extern int git__prefixncmp_icase(const char *str, size_t str_n, const char *prefix);
 extern int git__suffixcmp(const char *str, const char *suffix);
+extern int git__suffixcmp_icase(const char *str, const char *suffix);
 
 GIT_INLINE(int) git__signum(int val)
 {
@@ -82,15 +83,6 @@ extern char *git__strsep(char **end, const char *sep);
 
 extern void git__strntolower(char *str, size_t len);
 extern void git__strtolower(char *str);
-
-#ifdef GIT_WIN32
-GIT_INLINE(int) git__tolower(int c)
-{
-	return (c >= 'A' && c <= 'Z') ? (c + 32) : c;
-}
-#else
-# define git__tolower(a) tolower(a)
-#endif
 
 extern size_t git__linenlen(const char *buffer, size_t buffer_len);
 
@@ -249,26 +241,6 @@ GIT_INLINE(size_t) git__size_t_powerof2(size_t v)
 	return git__size_t_bitmask(v) + 1;
 }
 
-GIT_INLINE(bool) git__isupper(int c)
-{
-	return (c >= 'A' && c <= 'Z');
-}
-
-GIT_INLINE(bool) git__isalpha(int c)
-{
-	return ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'));
-}
-
-GIT_INLINE(bool) git__isdigit(int c)
-{
-	return (c >= '0' && c <= '9');
-}
-
-GIT_INLINE(bool) git__isspace(int c)
-{
-	return (c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r' || c == '\v');
-}
-
 GIT_INLINE(bool) git__isspace_nonlf(int c)
 {
 	return (c == ' ' || c == '\t' || c == '\f' || c == '\r' || c == '\v');
@@ -277,11 +249,6 @@ GIT_INLINE(bool) git__isspace_nonlf(int c)
 GIT_INLINE(bool) git__iswildcard(int c)
 {
 	return (c == '*' || c == '?' || c == '[');
-}
-
-GIT_INLINE(bool) git__isxdigit(int c)
-{
-	return ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
 }
 
 /*
@@ -319,59 +286,67 @@ GIT_INLINE(void) git__memzero(void *data, size_t size)
 
 #ifdef GIT_WIN32
 
-GIT_INLINE(double) git__timer(void)
+GIT_INLINE(uint64_t) git_time_monotonic(void)
 {
 	/* GetTickCount64 returns the number of milliseconds that have
 	 * elapsed since the system was started. */
-	return (double) GetTickCount64() / (double) 1000;
+	return GetTickCount64();
 }
 
 #elif __APPLE__
 
 #include <mach/mach_time.h>
+#include <sys/time.h>
 
-GIT_INLINE(double) git__timer(void)
+GIT_INLINE(uint64_t) git_time_monotonic(void)
 {
-   uint64_t time = mach_absolute_time();
-   static double scaling_factor = 0;
+	static double scaling_factor = 0;
 
-   if (scaling_factor == 0) {
-       mach_timebase_info_data_t info;
-       (void)mach_timebase_info(&info);
-       scaling_factor = (double)info.numer / (double)info.denom;
-   }
+	if (scaling_factor == 0) {
+		mach_timebase_info_data_t info;
 
-   return (double)time * scaling_factor / 1.0E9;
+		scaling_factor = mach_timebase_info(&info) == KERN_SUCCESS ?
+			((double)info.numer / (double)info.denom) / 1.0E6 :
+			-1;
+	} else if (scaling_factor < 0) {
+		struct timeval tv;
+
+		/* mach_timebase_info failed; fall back to gettimeofday */
+		gettimeofday(&tv, NULL);
+		return (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
+	}
+
+	return (uint64_t)(mach_absolute_time() * scaling_factor);
 }
 
 #elif defined(__amigaos4__)
 
 #include <proto/timer.h>
 
-GIT_INLINE(double) git__timer(void)
+GIT_INLINE(uint64_t) git_time_monotonic(void)
 {
 	struct TimeVal tv;
 	ITimer->GetUpTime(&tv);
-	return (double)tv.Seconds + (double)tv.Microseconds / 1.0E6;
+	return (tv.Seconds * 1000) + (tv.Microseconds / 1000);
 }
 
 #else
 
 #include <sys/time.h>
 
-GIT_INLINE(double) git__timer(void)
+GIT_INLINE(uint64_t) git_time_monotonic(void)
 {
 	struct timeval tv;
 
 #ifdef CLOCK_MONOTONIC
 	struct timespec tp;
 	if (clock_gettime(CLOCK_MONOTONIC, &tp) == 0)
-		return (double) tp.tv_sec + (double) tp.tv_nsec / 1.0E9;
+		return (tp.tv_sec * 1000) + (tp.tv_nsec / 1.0E6);
 #endif
 
 	/* Fall back to using gettimeofday */
 	gettimeofday(&tv, NULL);
-	return (double)tv.tv_sec + (double)tv.tv_usec / 1.0E6;
+	return (tv.tv_sec * 1000) + (tv.tv_usec / 1000);
 }
 
 #endif

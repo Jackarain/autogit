@@ -18,7 +18,7 @@
 # endif
 # include <windows.h>
 
-# ifdef GIT_QSORT_S
+# ifdef GIT_QSORT_MSC
 #  include <search.h>
 # endif
 #endif
@@ -269,13 +269,26 @@ int git__prefixncmp_icase(const char *str, size_t str_n, const char *prefix)
 	return prefixcmp(str, str_n, prefix, true);
 }
 
-int git__suffixcmp(const char *str, const char *suffix)
+static int suffixcmp(const char *str, const char *suffix, bool icase)
 {
 	size_t a = strlen(str);
 	size_t b = strlen(suffix);
+
 	if (a < b)
 		return -1;
-	return strcmp(str + (a - b), suffix);
+
+	return icase ? strcasecmp(str + (a - b), suffix) :
+	               strcmp(str + (a - b), suffix);
+}
+
+int git__suffixcmp(const char *str, const char *suffix)
+{
+	return suffixcmp(str, suffix, false);
+}
+
+int git__suffixcmp_icase(const char *str, const char *suffix)
+{
+	return suffixcmp(str, suffix, true);
 }
 
 char *git__strtok(char **end, const char *sep)
@@ -623,12 +636,12 @@ int git__bsearch_r(
  */
 int git__strcmp_cb(const void *a, const void *b)
 {
-	return strcmp((const char *)a, (const char *)b);
+	return git__strcmp((const char *)a, (const char *)b);
 }
 
 int git__strcasecmp_cb(const void *a, const void *b)
 {
-	return strcasecmp((const char *)a, (const char *)b);
+	return git__strcasecmp((const char *)a, (const char *)b);
 }
 
 int git__parse_bool(int *out, const char *value)
@@ -673,7 +686,7 @@ size_t git__unescape(char *str)
 	return (pos - str);
 }
 
-#if defined(GIT_QSORT_S) || defined(GIT_QSORT_R_BSD)
+#if defined(GIT_QSORT_MSC) || defined(GIT_QSORT_BSD)
 typedef struct {
 	git__sort_r_cmp cmp;
 	void *payload;
@@ -688,9 +701,11 @@ static int GIT_LIBGIT2_CALL git__qsort_r_glue_cmp(
 #endif
 
 
-#if !defined(GIT_QSORT_R_BSD) && \
-	!defined(GIT_QSORT_R_GNU) && \
-	!defined(GIT_QSORT_S)
+#if !defined(GIT_QSORT_BSD) && \
+    !defined(GIT_QSORT_GNU) && \
+    !defined(GIT_QSORT_C11) && \
+    !defined(GIT_QSORT_MSC)
+
 static void swap(uint8_t *a, uint8_t *b, size_t elsize)
 {
 	char tmp[256];
@@ -716,17 +731,20 @@ static void insertsort(
 		for (j = i; j > base && cmp(j, j - elsize, payload) < 0; j -= elsize)
 			swap(j, j - elsize, elsize);
 }
+
 #endif
 
 void git__qsort_r(
 	void *els, size_t nel, size_t elsize, git__sort_r_cmp cmp, void *payload)
 {
-#if defined(GIT_QSORT_R_BSD)
+#if defined(GIT_QSORT_GNU)
+	qsort_r(els, nel, elsize, cmp, payload);
+#elif defined(GIT_QSORT_C11)
+	qsort_s(els, nel, elsize, cmp, payload);
+#elif defined(GIT_QSORT_BSD)
 	git__qsort_r_glue glue = { cmp, payload };
 	qsort_r(els, nel, elsize, &glue, git__qsort_r_glue_cmp);
-#elif defined(GIT_QSORT_R_GNU)
-	qsort_r(els, nel, elsize, cmp, payload);
-#elif defined(GIT_QSORT_S)
+#elif defined(GIT_QSORT_MSC)
 	git__qsort_r_glue glue = { cmp, payload };
 	qsort_s(els, nel, elsize, git__qsort_r_glue_cmp, &glue);
 #else
@@ -743,7 +761,7 @@ int git__getenv(git_str *out, const char *name)
 
 	git_str_clear(out);
 
-	if (git__utf8_to_16_alloc(&wide_name, name) < 0)
+	if (git_utf8_to_16_alloc(&wide_name, name) < 0)
 		return -1;
 
 	if ((value_len = GetEnvironmentVariableW(wide_name, NULL, 0)) > 0) {
