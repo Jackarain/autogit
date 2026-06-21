@@ -1,50 +1,154 @@
 # autogit
 
-This is an automated program for backing up directories. Its main function is to automatically commit and push a Git repository directory to a Git backup server.
-\
-\
-The primary motivation behind developing this program is to address the problem of struggling to remember complex operations in Linux (for example, configuring complex software like GitLab, Nextcloud, and so forth). With the help of asciinema, all shell operations are automatically recorded, and the record files are then automatically pushed to a remote Git repository for backup. This makes it easy not only to trace and reproduce every step of an operation but also to save and share these operation records through the Git repository.
-\
-\
-Of course, this program can also be used for other file backup purposes, such as automating the backup of documents, configuration files, etc.
-\
-\
-Here is a reference for usage:
+[中文](README.md) | English
 
-1. Create /root/.cache/asciinema/ directory as a Git repository.
-2. Configure the push address and other information for the Git repository created in the previous step.
-3. Install asciinema, then configure .zshrc to automatically start recording all operations on the shell upon opening. Add the following code at the end of this file:
+**autogit** is a high-performance Git repository auto-backup daemon built with C++20 coroutines. It monitors file changes in a specified directory in real time, automatically commits and pushes changes to a remote Git server, providing unattended continuous backup.
+
+---
+
+## Features
+
+### 🔄 Automatic Commit & Push
+- Automatically detects file changes (new, modified, deleted, renamed, type changed)
+- Automatically stages all changed files (`git add`)
+- Automatically creates commits and pushes to remote Git server
+- Supports force push mode
+
+### 👁️ Real-time File Watching
+- Native file system event notifications per platform:
+  - **Linux**: inotify
+  - **macOS**: FSEvents
+  - **Windows**: ReadDirectoryChangesW
+- Instant response to file changes without polling
+- Configurable polling fallback interval
+
+### 🔐 Multiple Authentication Methods
+- **SSH key authentication**: Custom public/private key paths and passphrase
+- **HTTP/HTTPS authentication**: Username/password support
+- Automatically adapts to remote repository authentication
+
+### 🏗️ Automatic Repository Initialization
+- Auto-initializes Git repository if target directory is not yet a repo
+- Automatically configures remote URL
+- Supports initial commit for empty repositories
+
+### ⚙️ Flexible Configuration
+- Command-line arguments and configuration file (`autogit.conf`) support
+- Custom commit messages
+- Custom Git author name and email
+- Configurable check interval
+- Quiet mode (disable logging)
+- Configurable log directory
+
+### 🐳 Docker Support
+- Dockerfiles for both Alpine and Ubuntu bases
+- Static linking for small image size
+- Ready-to-use containerized deployment
+
+### 🖥️ Cross-platform
+- Linux, macOS, Windows — fully compatible
+- CMake build system with Ninja support
+- GCC, Clang, MSVC compiler support
+- ccache build cache support
+
+---
+
+## Quick Start
+
+### Build
 
 ```bash
-ctime=$(date +%Y%m%d_%H%M%S)
-
-if [ -z "$recsession" ]; then
-    export recsession=$$
-    echo "Current time: $ctime, recsession: $recsession"
-    /usr/bin/asciinema rec "/root/.cache/asciinema/$ctime-$recsession-ascii.cast"
-fi
+git clone https://github.com/jackarain/autogit.git
+cd autogit
+mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -G Ninja
+ninja
 ```
 
-Save after making these changes. From then on, asciinema will run automatically when opening the shell, recording all your shell operations and saving them to the /root/.cache/asciinema/ Git repository directory.
+The executable will be at `build/bin/autogit`.
 
-4. Compile this project to obtain the executable program autogit. Copy it to /usr/local/bin/autogit, and then create a systemd service to automatically run autogit:
+### Basic Usage
+
+Monitor an existing Git repository and back it up automatically:
 
 ```bash
+autogit --repository /path/to/your/repo \
+        --git_remote_url https://github.com/user/repo.git \
+        --git_author "Your Name" \
+        --git_email "your@email.com"
+```
+
+### SSH Authentication
+
+```bash
+autogit --repository /path/to/your/repo \
+        --git_remote_url git@github.com:user/repo.git \
+        --ssh_privkey /path/to/id_rsa \
+        --ssh_pubkey /path/to/id_rsa.pub
+```
+
+### systemd Service
+
+```ini
 [Unit]
-Description=Git watch service
+Description=Auto Git Backup Daemon
 After=network.target
 
 [Service]
-User=root
-ExecStart=/usr/local/bin/autogit --quiet true --check_interval 60 --repository /root/.cache/asciinema
+ExecStart=/usr/local/bin/autogit --repository /path/to/repo --check_interval 60
 WorkingDirectory=/tmp/
-ExecReload=/bin/kill -HUP $MAINPID
-KillMode=process
 Restart=always
-RestartSec=10
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Then start this service. From this point on, all operations on the shell will be recorded.
+### Docker Deployment
+
+```bash
+docker build -t autogit -f Dockerfile .
+docker run -d \
+    -v /path/to/repo:/data \
+    autogit --repository /data --quiet true
+```
+
+---
+
+## Command-line Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--repository` | — | Path to the Git repository to watch |
+| `--config` | `autogit.conf` | Path to configuration file |
+| `--check_interval` | `60` | Check interval in seconds |
+| `--commit_msg` | `Commit by autogit` | Custom commit message |
+| `--force_push` | `false` | Enable force push |
+| `--git_author` | — | Git commit author name |
+| `--git_email` | — | Git commit author email |
+| `--git_remote_url` | — | Remote repository URL |
+| `--http_username` | — | HTTP auth username |
+| `--http_password` | — | HTTP auth password |
+| `--ssh_pubkey` | — | SSH public key path |
+| `--ssh_privkey` | — | SSH private key path |
+| `--ssh_passphrase` | — | SSH key passphrase |
+| `--quiet` | `false` | Quiet mode (suppress logging) |
+| `--log_dir` | — | Log file directory |
+
+---
+
+## Technical Architecture
+
+autogit is built on the following core technologies:
+
+- **C++20 Coroutines** — Boost.Asio `awaitable`-based asynchronous I/O and coroutine control flow
+- **libgit2** — Pure C Git core operations library, no Git CLI dependency
+- **Boost Libraries** — Asio (networking & async), Filesystem (file system), Program Options (argument parsing)
+- **watchman Module** — Cross-platform file system event monitoring abstraction layer
+- **gitpp** — Modern C++ RAII wrapper around libgit2 (located in `incubator/gitpp/`)
+
+---
+
+## License
+
+This project is open source under the [Boost Software License 1.0](LICENSE).
