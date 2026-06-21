@@ -37,13 +37,13 @@ add_feature_info(debugopen GIT_DEBUG_STRICT_OPEN "path validation in open")
 #
 
 include(SelectGSSAPI)
-include(SelectHTTPSBackend)
+#include(SelectHTTPSBackend)
 include(SelectHashes)
 include(SelectHTTPParser)
 include(SelectRegex)
 include(SelectXdiff)
-include(SelectSSH)
-include(SelectZlib)
+#include(SelectSSH)
+#include(SelectZlib)
 
 #
 # Platform support
