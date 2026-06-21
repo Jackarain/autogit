@@ -411,13 +411,13 @@ include_directories(${ZLIB_INCLUDE_DIR})
 include_directories(${LIBSSH2_INCLUDE_DIRS})
 
 add_subdirectory(third_party/libgit2 EXCLUDE_FROM_ALL)
-set(LIBGIT2_LIBRARIES pcre http-parser util libgit2)
+set(LIBGIT2_LIBRARIES pcre llhttp util libgit2)
 set(GIT2_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libgit2/include)
 set_target_properties(libgit2 PROPERTIES FOLDER "third_party/")
 if (TARGET pcre)
 	set_target_properties(pcre PROPERTIES FOLDER "third_party/")
 endif()
-set_target_properties(http-parser PROPERTIES FOLDER "third_party/")
+set_target_properties(llhttp PROPERTIES FOLDER "third_party/")
 set_target_properties(util PROPERTIES FOLDER "third_party/")
 
 ################################################################################
