@@ -6,7 +6,7 @@
 
 cmake_minimum_required(VERSION 3.5.1)
 
-project(libgit2 VERSION "1.6.4" LANGUAGES C)
+project(libgit2 VERSION "1.6.5" LANGUAGES C)
 
 # Add find modules to the path
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
@@ -19,9 +19,9 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
 option(EXPERIMENTAL_SHA256     "Enable experimental SHA256 support (for R&D/testing)"  OFF)
 
 # Optional subsystems
-option(BUILD_SHARED_LIBS       "Build Shared Library (OFF for Static)"                  OFF)
-option(BUILD_TESTS             "Build Tests using the Clar suite"                       OFF)
-option(BUILD_CLI               "Build the command-line interface"                       OFF)
+option(BUILD_SHARED_LIBS       "Build Shared Library (OFF for Static)"                  ON)
+option(BUILD_TESTS             "Build Tests using the Clar suite"                       ON)
+option(BUILD_CLI               "Build the command-line interface"                       ON)
 option(BUILD_EXAMPLES          "Build library usage example apps"                      OFF)
 option(BUILD_FUZZERS           "Build the fuzz targets"                                OFF)
 
@@ -30,7 +30,7 @@ option(USE_THREADS             "Use threads for parallel processing when possibl
 option(USE_NSEC                "Support nanosecond precision file mtimes and ctimes"    ON)
 
 # Backend selection
-option(USE_SSH                 "Link with libssh2 to enable SSH support"               ON)
+option(USE_SSH                 "Link with libssh2 to enable SSH support"               OFF)
 option(USE_HTTPS               "Enable HTTPS support. Can be set to a specific backend" ON)
 option(USE_SHA1                "Enable SHA1. Can be set to CollisionDetection(ON)/HTTPS" ON)
 option(USE_SHA256              "Enable SHA256. Can be set to HTTPS/Builtin" ON)
@@ -85,7 +85,7 @@ endif()
 if(WIN32)
 	# By default, libgit2 is built with WinHTTP.  To use the built-in
 	# HTTP transport, invoke CMake with the "-DUSE_WINHTTP=OFF" argument.
-	option(USE_WINHTTP         "Use Win32 WinHTTP routines"                         OFF)
+	option(USE_WINHTTP         "Use Win32 WinHTTP routines"                         ON)
 endif()
 
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
