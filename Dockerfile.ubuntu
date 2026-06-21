@@ -1,16 +1,26 @@
-FROM ubuntu:22.04 as builder
+FROM ubuntu:22.04 AS builder
 
-RUN apt-get update && apt-get install --fix-missing -y ca-certificates
-RUN sed -i "s@http://.*archive.ubuntu.com@https://mirrors.tuna.tsinghua.edu.cn@g" /etc/apt/sources.list && sed -i "s@http://.*security.ubuntu.com@https://mirrors.tuna.tsinghua.edu.cn@g" /etc/apt/sources.list
-RUN apt-get update && apt-get upgrade -y
-RUN apt-get install -y cmake gcc g++ ninja-build
+RUN sed -i "s@http://.*archive.ubuntu.com@https://mirrors.tuna.tsinghua.edu.cn@g" /etc/apt/sources.list \
+    && sed -i "s@http://.*security.ubuntu.com@https://mirrors.tuna.tsinghua.edu.cn@g" /etc/apt/sources.list \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y \
+        cmake \
+        g++ \
+        gcc \
+        ninja-build
+
 ADD . /autogit
-RUN cd /autogit && mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -G Ninja && ninja
+
+RUN cmake -B /autogit/build -DCMAKE_BUILD_TYPE=Release -G Ninja \
+    && cmake --build /autogit/build
 
 FROM ubuntu:22.04
-RUN apt-get update && apt-get install -y ca-certificates
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /autogit/build/bin/autogit /usr/local/bin/
 
 WORKDIR /root
 ENTRYPOINT ["autogit"]
-
