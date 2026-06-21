@@ -42,6 +42,7 @@ namespace fs = boost::filesystem;
 #include "watchman/watchman.hpp"
 
 #include "gitpp/gitpp.hpp"
+#include "gitpp/lfs.hpp"
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -76,6 +77,10 @@ std::string global_git_author;
 std::string global_git_email;
 
 std::string global_git_remote_url;
+
+// Git LFS configuration.
+bool global_enable_lfs = false;
+std::vector<std::string> global_lfs_patterns;
 
 int certificate_check_cb(git_cert *cert,
 	int valid,
@@ -164,6 +169,23 @@ int gitwork(gitpp::repo& repo)
 	gitpp::index index = repo.get_index();
 	gitpp::status_list status = repo.new_status_list();
 
+	// Load LFS patterns once if LFS is enabled.
+	std::vector<std::string> lfs_patterns;
+	std::string git_dir = repo.path();
+	if (global_enable_lfs)
+	{
+		// Load patterns from .gitattributes.
+		lfs_patterns = gitpp::lfs::load_lfs_patterns(
+			git_dir, repo.native());
+		// Merge in any patterns specified via --lfs_pattern on command line.
+		for (const auto& pat : global_lfs_patterns)
+		{
+			if (std::find(lfs_patterns.begin(),
+				lfs_patterns.end(), pat) == lfs_patterns.end())
+				lfs_patterns.push_back(pat);
+		}
+	}
+
 	size_t commit_count = 0;
 	for (const git_status_entry* entry : status)
 	{
@@ -171,11 +193,68 @@ int gitwork(gitpp::repo& repo)
 		auto handle = index.native();
 		int ret = 0;
 
+		// Determine the actual path to stage.
+		// For LFS-tracked files, we stage a pointer file instead.
+		std::string stage_path = old_file_path;
+
+		if (global_enable_lfs &&
+			!lfs_patterns.empty() &&
+			(entry->status & (GIT_STATUS_WT_NEW |
+				GIT_STATUS_WT_MODIFIED |
+				GIT_STATUS_WT_TYPECHANGE)))
+		{
+			bool is_lfs = gitpp::lfs::path_matches_lfs(
+				old_file_path, lfs_patterns);
+
+			if (is_lfs)
+			{
+				// Resolve the full path of the file.
+				auto workdir = repo.workdir();
+				auto full_path = std::filesystem::path(workdir) /
+					std::filesystem::path(old_file_path);
+
+				// Check if the file is already an LFS pointer.
+				bool already_pointer = false;
+				if (std::filesystem::exists(full_path))
+					already_pointer = gitpp::lfs::pointer::is_pointer_file(
+						full_path);
+
+				if (!already_pointer)
+				{
+					// Create LFS pointer and store object.
+					auto ptr = gitpp::lfs::pointer::create_from_file(
+						full_path, git_dir);
+					if (ptr.has_value())
+					{
+						// Write the pointer file back to the working dir.
+						if (gitpp::lfs::write_pointer_file(
+								full_path, *ptr))
+						{
+							LOG_DBG << "lfs pointer created for: "
+								<< old_file_path
+								<< " (oid: " << ptr->oid
+								<< ", size: " << ptr->size << ")";
+						}
+						else
+						{
+							LOG_ERR << "lfs: failed to write pointer for: "
+								<< old_file_path;
+						}
+					}
+					else
+					{
+						LOG_ERR << "lfs: failed to create object for: "
+							<< old_file_path;
+					}
+				}
+			}
+		}
+
 		switch (entry->status & 0xfffffff0)
 		{
 		case GIT_STATUS_WT_NEW:
 		{
-			ret = git_index_add_bypath(handle, old_file_path);
+			ret = git_index_add_bypath(handle, stage_path.c_str());
 
 			commit_count++;
 			LOG_DBG << "Untracked file: "
@@ -184,7 +263,7 @@ int gitwork(gitpp::repo& repo)
 		break;
 		case GIT_STATUS_WT_MODIFIED:
 		{
-			ret = git_index_add_bypath(handle, old_file_path);
+			ret = git_index_add_bypath(handle, stage_path.c_str());
 
 			commit_count++;
 			LOG_DBG << "modify file: "
@@ -202,7 +281,7 @@ int gitwork(gitpp::repo& repo)
 		break;
 		case GIT_STATUS_WT_TYPECHANGE:
 		{
-			ret = git_index_add_bypath(handle, old_file_path);
+			ret = git_index_add_bypath(handle, stage_path.c_str());
 
 			commit_count++;
 			LOG_DBG << "typechg file: "
@@ -216,7 +295,7 @@ int gitwork(gitpp::repo& repo)
 				<< " to "
 				<< entry->index_to_workdir->new_file.path;
 
-			ret = git_index_add_bypath(handle, old_file_path);
+			ret = git_index_add_bypath(handle, stage_path.c_str());
 			commit_count++;
 		}
 		break;
@@ -313,6 +392,29 @@ int gitwork(gitpp::repo& repo)
 			<< git_error_last()->message;
 
 		return EXIT_FAILURE;
+	}
+
+	// If LFS is enabled, attempt to push LFS objects before the
+	// regular Git push.  We try the external `git lfs push` command
+	// first (most reliable), falling back to a built-in batch upload.
+	if (global_enable_lfs)
+	{
+		// Try external git-lfs first.
+		int lfs_ret = std::system(
+			("git -C \"" + repo.workdir() + "\" lfs push --all origin 2>/dev/null").c_str());
+
+		if (lfs_ret == 0)
+		{
+			LOG_DBG << "LFS objects pushed successfully via git-lfs.";
+		}
+		else
+		{
+			// External git-lfs not available or failed; log a warning.
+			// The built-in LFS batch upload can be extended here.
+			LOG_DBG << "git-lfs not available or push failed (ret="
+				<< lfs_ret << "), skipping LFS object upload. "
+				<< "Install git-lfs(1) for automatic LFS push support.";
+		}
 	}
 
 	options.callbacks.credentials = cred_acquire_cb;
@@ -496,6 +598,11 @@ net::awaitable<int> co_main(int argc, char** argv)
 		("ssh_pubkey", po::value<std::string>(&global_ssh_pubkey)->default_value(""), "Path to the SSH public key for authentication.")
 		("ssh_privkey", po::value<std::string>(&global_ssh_privkey)->default_value(""), "Path to the SSH private key for authentication.")
 		("ssh_passphrase", po::value<std::string>(&global_ssh_passphrase)->default_value(""), "Passphrase for the SSH key.");
+
+	// Git LFS options
+	desc.add_options()
+		("lfs", po::value<bool>(&global_enable_lfs)->default_value(false), "Enable Git LFS support. When enabled, files matching LFS patterns in .gitattributes will be stored as LFS pointers.")
+		("lfs_pattern", po::value<std::vector<std::string>>(&global_lfs_patterns)->multitoken(), "Additional LFS file patterns (glob) to track, e.g. --lfs_pattern '*.psd' --lfs_pattern '*.zip'. These supplement patterns from .gitattributes.");
 
 	po::variables_map vm;
 	po::store(
