@@ -399,7 +399,7 @@ set(USE_BUNDLED_ZLIB OFF)
 #set(USE_SHA1 "OpenSSL")
 #set(USE_SHA256 "OpenSSL")
 
-set(USE_SHA1 "OpenSSL")
+set(USE_SHA1 "CollisionDetection")
 set(USE_SHA256 "OpenSSL")
 set(USE_HTTP_PARSER "builtin") # default use llhttp
 set(REGEX_BACKEND "builtin")
