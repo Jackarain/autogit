@@ -41,6 +41,9 @@ typedef struct {
 	git_vector refs;
 	unsigned connected : 1,
 		have_refs : 1;
+#ifdef GIT_EXPERIMENTAL_SHA256
+	git_oid_t oid_type;
+#endif
 } transport_local;
 
 static void free_head(git_remote_head *head)
@@ -58,7 +61,7 @@ static void free_heads(git_vector *heads)
 	git_vector_foreach(heads, i, head)
 		free_head(head);
 
-	git_vector_free(heads);
+	git_vector_dispose(heads);
 }
 
 static int add_ref(transport_local *t, const char *name)
@@ -107,10 +110,6 @@ static int add_ref(transport_local *t, const char *name)
 		free_head(head);
 		return error;
 	}
-
-	/* If it's not a tag, we don't need to try to peel it */
-	if (git__prefixcmp(name, GIT_REFS_TAGS_DIR))
-		return 0;
 
 	if ((error = git_object_lookup(&obj, t->repo, &head->oid, GIT_OBJECT_ANY)) < 0)
 		return error;
@@ -186,7 +185,7 @@ static int store_refs(transport_local *t)
 	return 0;
 
 on_error:
-	git_vector_free(&t->refs);
+	git_vector_dispose(&t->refs);
 	git_strarray_dispose(&ref_names);
 	return -1;
 }
@@ -235,6 +234,10 @@ static int local_connect(
 
 	t->repo = repo;
 
+#ifdef GIT_EXPERIMENTAL_SHA256
+	t->oid_type = repo->oid_type;
+#endif
+
 	if (store_refs(t) < 0)
 		return -1;
 
@@ -271,7 +274,7 @@ static int local_oid_type(git_oid_t *out, git_transport *transport)
 {
 	transport_local *t = (transport_local *)transport;
 
-	*out = t->repo->oid_type;
+	*out = t->oid_type;
 
 	return 0;
 }

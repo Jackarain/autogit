@@ -15,6 +15,17 @@ static git_strarray push_array = {
 	1,
 };
 
+static int push_transfer_progress_cb(unsigned int current, unsigned int total, size_t bytes, void* payload)
+{
+	GIT_UNUSED(current);
+	GIT_UNUSED(total);
+	GIT_UNUSED(payload);
+
+	cl_assert(bytes == 0);
+
+	return 0;
+}
+
 void test_network_remote_local__initialize(void)
 {
 	cl_git_pass(git_repository_init(&repo, "remotelocal/", 0));
@@ -61,7 +72,7 @@ void test_network_remote_local__retrieve_advertised_references(void)
 
 	cl_git_pass(git_remote_ls(&refs, &refs_len, remote));
 
-	cl_assert_equal_i(refs_len, 30);
+	cl_assert_equal_i(refs_len, 31);
 }
 
 void test_network_remote_local__retrieve_advertised_before_connect(void)
@@ -85,7 +96,7 @@ void test_network_remote_local__retrieve_advertised_references_after_disconnect(
 
 	cl_git_pass(git_remote_ls(&refs, &refs_len, remote));
 
-	cl_assert_equal_i(refs_len, 30);
+	cl_assert_equal_i(refs_len, 31);
 }
 
 void test_network_remote_local__retrieve_advertised_references_from_spaced_repository(void)
@@ -100,7 +111,7 @@ void test_network_remote_local__retrieve_advertised_references_from_spaced_repos
 
 	cl_git_pass(git_remote_ls(&refs, &refs_len, remote));
 
-	cl_assert_equal_i(refs_len, 30);
+	cl_assert_equal_i(refs_len, 31);
 
 	git_remote_free(remote);	/* Disconnect from the "spaced repo" before the cleanup */
 	remote = NULL;
@@ -200,6 +211,7 @@ void test_network_remote_local__push_to_bare_remote(void)
 
 	/* Should be able to push to a bare remote */
 	git_remote *localremote;
+	git_push_options opts = GIT_PUSH_OPTIONS_INIT;
 
 	/* Get some commits */
 	connect_to_local_repository(cl_fixture("testrepo.git"));
@@ -217,7 +229,8 @@ void test_network_remote_local__push_to_bare_remote(void)
 	cl_git_pass(git_remote_connect(localremote, GIT_DIRECTION_PUSH, NULL, NULL, NULL));
 
 	/* Try to push */
-	cl_git_pass(git_remote_upload(localremote, &push_array, NULL));
+	opts.callbacks.push_transfer_progress = push_transfer_progress_cb;
+	cl_git_pass(git_remote_upload(localremote, &push_array, &opts));
 
 	/* Clean up */
 	git_remote_free(localremote);
@@ -466,15 +479,39 @@ void test_network_remote_local__push_delete(void)
 	cl_git_sandbox_cleanup();
 }
 
+void test_network_remote_local__sha256_oid_type(void)
+{
+#ifndef GIT_EXPERIMENTAL_SHA256
+	cl_skip();
+#else
+	git_oid_t oid_type;
+
+	connect_to_local_repository(cl_fixture("testrepo_256.git"));
+
+	cl_git_pass(git_remote_oid_type(&oid_type, remote));
+	cl_assert_equal_i(GIT_OID_SHA256, oid_type);
+
+	git_remote_disconnect(remote);
+
+	/* oid_type remains available after disconnect */
+	cl_git_pass(git_remote_oid_type(&oid_type, remote));
+	cl_assert_equal_i(GIT_OID_SHA256, oid_type);
+#endif
+}
+
 void test_network_remote_local__anonymous_remote_inmemory_repo(void)
 {
 	git_repository *inmemory;
 	git_remote *remote;
 
+#ifdef GIT_EXPERIMENTAL_SHA256
+	git_repository_new_options repo_opts = GIT_REPOSITORY_NEW_OPTIONS_INIT;
+#endif
+
 	git_str_sets(&file_path_buf, cl_git_path_url(cl_fixture("testrepo.git")));
 
 #ifdef GIT_EXPERIMENTAL_SHA256
-	cl_git_pass(git_repository_new(&inmemory, GIT_OID_SHA1));
+	cl_git_pass(git_repository_new(&inmemory, &repo_opts));
 #else
 	cl_git_pass(git_repository_new(&inmemory));
 #endif

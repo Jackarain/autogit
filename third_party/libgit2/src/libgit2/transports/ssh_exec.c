@@ -132,7 +132,6 @@ static int get_ssh_cmdline(
 	git_str ssh_cmd = GIT_STR_INIT, url_and_host = GIT_STR_INIT,
 		remote_cmd = GIT_STR_INIT;
 	const char *default_ssh_cmd = "ssh";
-	char *p, *port;
 	int error;
 
 	/*
@@ -174,13 +173,15 @@ static int get_ssh_cmdline(
 	if ((error = git_vector_insert(args, git_str_detach(&ssh_cmd))) < 0)
 		goto done;
 
-	p = git__strdup("-p");
-	port = git__strdup(url->port);
+	if (url->port_specified) {
+		char *p = git__strdup("-p");
+		char *port = git__strdup(url->port);
 
-	if (!p || !port ||
-	    (error = git_vector_insert(args, p)) < 0 ||
-	    (error = git_vector_insert(args, port)) < 0)
-		goto done;
+		if (!p || !port ||
+		    (error = git_vector_insert(args, p)) < 0 ||
+		    (error = git_vector_insert(args, port)) < 0)
+			goto done;
+	}
 
 	if (url->username) {
 		if ((error = git_str_puts(&url_and_host, url->username)) < 0 ||
@@ -264,7 +265,7 @@ static int start_ssh(
 	}
 
 done:
-	git_vector_free_deep(&args);
+	git_vector_dispose_deep(&args);
 	git_net_url_dispose(&url);
 	return error;
 }

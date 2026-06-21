@@ -44,7 +44,7 @@ struct git_process {
 
 GIT_INLINE(bool) is_delete_env(const char *env)
 {
-	char *c = strchr(env, '=');
+	const char *c = strchr(env, '=');
 
 	if (c == NULL)
 		return false;
@@ -95,7 +95,7 @@ static int setup_args(
 
 on_error:
 	git_str_dispose(&first);
-	git_vector_free_deep(&prefixed);
+	git_vector_dispose_deep(&prefixed);
 	return -1;
 }
 
@@ -147,7 +147,7 @@ static int merge_env(
 	return 0;
 
 on_error:
-	git_vector_free_deep(&merged);
+	git_vector_dispose_deep(&merged);
 	return error;
 }
 

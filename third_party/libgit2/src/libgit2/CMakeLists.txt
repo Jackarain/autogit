@@ -2,17 +2,15 @@
 # git library functionality.
 
 add_library(libgit2 OBJECT)
-set_target_properties(libgit2 PROPERTIES C_STANDARD 90)
-set_target_properties(libgit2 PROPERTIES C_EXTENSIONS OFF)
 
 include(PkgBuildConfig)
+include(CMakePackageConfigHelpers)
 
 set(LIBGIT2_INCLUDES
-	"${PROJECT_BINARY_DIR}/src/util"
-	"${PROJECT_BINARY_DIR}/include"
 	"${PROJECT_SOURCE_DIR}/src/libgit2"
 	"${PROJECT_SOURCE_DIR}/src/util"
-	"${PROJECT_SOURCE_DIR}/include")
+	"${PROJECT_SOURCE_DIR}/include"
+	"${PROJECT_BINARY_DIR}/gen_headers")
 
 # Collect sourcefiles
 file(GLOB SRC_H
@@ -42,7 +40,11 @@ ide_split_sources(libgit2)
 list(APPEND LIBGIT2_OBJECTS $<TARGET_OBJECTS:util> $<TARGET_OBJECTS:libgit2> ${LIBGIT2_DEPENDENCY_OBJECTS})
 list(APPEND LIBGIT2_INCLUDES ${LIBGIT2_DEPENDENCY_INCLUDES})
 
-target_include_directories(libgit2 PRIVATE ${LIBGIT2_INCLUDES} ${LIBGIT2_DEPENDENCY_INCLUDES} PUBLIC ${PROJECT_SOURCE_DIR}/include)
+target_include_directories(libgit2
+	PRIVATE ${LIBGIT2_INCLUDES} ${LIBGIT2_DEPENDENCY_INCLUDES}
+	PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+	       $<INSTALL_INTERFACE:include>)
+
 target_include_directories(libgit2 SYSTEM PRIVATE ${LIBGIT2_SYSTEM_INCLUDES})
 
 set(LIBGIT2_INCLUDES ${LIBGIT2_INCLUDES} PARENT_SCOPE)
@@ -56,11 +58,19 @@ set(LIBGIT2_SYSTEM_LIBS ${LIBGIT2_SYSTEM_LIBS} PARENT_SCOPE)
 # Compile and link libgit2
 #
 
+if (NOT BUILD_SHARED_LIBS AND XCODE_VERSION)
+	# This is required for Xcode to actually create the static libgit2 library
+	file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/dummy.c "")
+	list(APPEND LIBGIT2_OBJECTS ${CMAKE_CURRENT_BINARY_DIR}/dummy.c)
+endif()
+
 add_library(libgit2package ${SRC_RC} ${LIBGIT2_OBJECTS})
 target_link_libraries(libgit2package ${LIBGIT2_SYSTEM_LIBS})
 target_include_directories(libgit2package SYSTEM PRIVATE ${LIBGIT2_INCLUDES})
+target_include_directories(libgit2package INTERFACE $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
 set_target_properties(libgit2package PROPERTIES C_STANDARD 90)
+set_target_properties(libgit2package PROPERTIES C_EXTENSIONS OFF)
 set_target_properties(libgit2package PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
 set_target_properties(libgit2package PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
 set_target_properties(libgit2package PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
@@ -93,24 +103,54 @@ endif()
 
 # support experimental features and functionality
 
-configure_file(experimental.h.in "${PROJECT_BINARY_DIR}/include/git2/experimental.h")
+configure_file(experimental.h.in "${PROJECT_BINARY_DIR}/gen_headers/experimental.h")
 
-# translate filenames in the git2.h so that they match the install directory
+# translate filenames in the headers so that they match the install directory
 # (allows for side-by-side installs of libgit2 and libgit2-experimental.)
 
-FILE(READ "${PROJECT_SOURCE_DIR}/include/git2.h" LIBGIT2_INCLUDE)
-STRING(REGEX REPLACE "#include \"git2\/" "#include \"${LIBGIT2_FILENAME}/" LIBGIT2_INCLUDE "${LIBGIT2_INCLUDE}")
-FILE(WRITE "${PROJECT_BINARY_DIR}/include/${LIBGIT2_FILENAME}.h" ${LIBGIT2_INCLUDE})
+foreach(HEADER_SOURCE ${SRC_H})
+	file(RELATIVE_PATH HEADER_RELATIVE ${PROJECT_SOURCE_DIR} ${HEADER_SOURCE})
+	string(REGEX REPLACE "^include\/git2" "include/${LIBGIT2_FILENAME}" HEADER_RELATIVE ${HEADER_RELATIVE})
+
+	file(READ "${HEADER_SOURCE}" HEADER_CONTENTS)
+	string(REGEX REPLACE "#include \"git2\/" "#include \"${LIBGIT2_FILENAME}/" HEADER_CONTENTS "${HEADER_CONTENTS}")
+
+	file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${HEADER_RELATIVE}.tmp" "${HEADER_CONTENTS}")
+	configure_file("${CMAKE_CURRENT_BINARY_DIR}/${HEADER_RELATIVE}.tmp" "${PROJECT_BINARY_DIR}/${HEADER_RELATIVE}" COPYONLY)
+endforeach()
+
+configure_file("${PROJECT_BINARY_DIR}/gen_headers/experimental.h" "${PROJECT_BINARY_DIR}/include/${LIBGIT2_FILENAME}/experimental.h" COPYONLY)
+
+# cmake package targets
+
+set(LIBGIT2_TARGETS_EXPORT_NAME "${PROJECT_NAME}Targets")
+
+write_basic_package_version_file(
+	"${PROJECT_BINARY_DIR}/cmake/${PROJECT_NAME}ConfigVersion.cmake"
+	VERSION ${PROJECT_VERSION}
+	COMPATIBILITY SameMajorVersion)
+
+configure_file(config.cmake.in
+	"${PROJECT_BINARY_DIR}/cmake/${PROJECT_NAME}Config.cmake"
+	@ONLY)
+
+install(FILES
+	"${PROJECT_BINARY_DIR}/cmake/${PROJECT_NAME}Config.cmake"
+	"${PROJECT_BINARY_DIR}/cmake/${PROJECT_NAME}ConfigVersion.cmake"
+	DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+install(
+	EXPORT ${LIBGIT2_TARGETS_EXPORT_NAME}
+	NAMESPACE "${PROJECT_NAME}::"
+	DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
 
 # Install
 
 install(TARGETS libgit2package
+	EXPORT ${LIBGIT2_TARGETS_EXPORT_NAME}
 	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/git2/
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${LIBGIT2_FILENAME}")
-install(FILES ${PROJECT_BINARY_DIR}/include/git2/experimental.h
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${LIBGIT2_FILENAME}")
 install(FILES "${PROJECT_BINARY_DIR}/include/${LIBGIT2_FILENAME}.h"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(DIRECTORY "${PROJECT_BINARY_DIR}/include/${LIBGIT2_FILENAME}"
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})

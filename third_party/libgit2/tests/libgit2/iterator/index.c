@@ -280,11 +280,23 @@ static const char *expected_index_ci[] = {
 void test_iterator_index__case_folding(void)
 {
 	git_str path = GIT_STR_INIT;
+	git_index *index;
 	int fs_is_ci = 0;
+	int index_is_ci = 0;
 
-	cl_git_pass(git_str_joinpath(&path, cl_fixture("icase"), ".gitted/CoNfIg"));
+	g_repo = cl_git_sandbox_init("icase");
+
+	/* check filesystem case-sensitivity in the sandbox where tests will be executing */
+	cl_git_pass(git_str_joinpath(&path, git_repository_workdir(g_repo), ".git/CoNfIg"));
 	fs_is_ci = git_fs_path_exists(path.ptr);
 	git_str_dispose(&path);
+
+	/* verify index capability matches filesystem detection */
+	cl_git_pass(git_repository_index(&index, g_repo));
+	index_is_ci = (git_index_caps(index) & GIT_INDEX_CAPABILITY_IGNORE_CASE) != 0;
+	cl_assert_equal_i(fs_is_ci, index_is_ci);
+	git_index_free(index);
+	cl_git_sandbox_cleanup();
 
 	index_iterator_test(
 		"icase", NULL, NULL, 0, ARRAY_SIZE(expected_index_cs),
@@ -627,7 +639,7 @@ void test_iterator_index__pathlist(void)
 	}
 
 	git_index_free(index);
-	git_vector_free(&filelist);
+	git_vector_dispose(&filelist);
 }
 
 void test_iterator_index__pathlist_with_dirs(void)
@@ -728,7 +740,7 @@ void test_iterator_index__pathlist_with_dirs(void)
 	}
 
 	git_index_free(index);
-	git_vector_free(&filelist);
+	git_vector_dispose(&filelist);
 }
 
 void test_iterator_index__pathlist_with_dirs_include_trees(void)
@@ -759,7 +771,7 @@ void test_iterator_index__pathlist_with_dirs_include_trees(void)
 	git_iterator_free(i);
 
 	git_index_free(index);
-	git_vector_free(&filelist);
+	git_vector_dispose(&filelist);
 }
 
 void test_iterator_index__pathlist_1(void)
@@ -799,7 +811,7 @@ void test_iterator_index__pathlist_1(void)
 	git_iterator_free(i);
 
 	git_index_free(index);
-	git_vector_free(&filelist);
+	git_vector_dispose(&filelist);
 }
 
 void test_iterator_index__pathlist_2(void)
@@ -841,7 +853,7 @@ void test_iterator_index__pathlist_2(void)
 	git_iterator_free(i);
 
 	git_index_free(index);
-	git_vector_free(&filelist);
+	git_vector_dispose(&filelist);
 }
 
 void test_iterator_index__pathlist_four(void)
@@ -883,7 +895,7 @@ void test_iterator_index__pathlist_four(void)
 	git_iterator_free(i);
 
 	git_index_free(index);
-	git_vector_free(&filelist);
+	git_vector_dispose(&filelist);
 }
 
 void test_iterator_index__pathlist_icase(void)
@@ -946,7 +958,7 @@ void test_iterator_index__pathlist_icase(void)
 
 	cl_git_pass(git_index_set_caps(index, caps));
 	git_index_free(index);
-	git_vector_free(&filelist);
+	git_vector_dispose(&filelist);
 }
 
 void test_iterator_index__pathlist_with_directory(void)
@@ -973,7 +985,7 @@ void test_iterator_index__pathlist_with_directory(void)
 
 	git_index_free(index);
 	git_tree_free(tree);
-	git_vector_free(&filelist);
+	git_vector_dispose(&filelist);
 }
 
 static void create_paths(git_index *index, const char *root, int depth)
@@ -1131,7 +1143,7 @@ void test_iterator_index__pathlist_for_deeply_nested_item(void)
 	}
 
 	git_index_free(index);
-	git_vector_free(&filelist);
+	git_vector_dispose(&filelist);
 }
 
 void test_iterator_index__advance_over(void)

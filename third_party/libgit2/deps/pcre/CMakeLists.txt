@@ -22,6 +22,8 @@ check_type_size("unsigned long long"    UNSIGNED_LONG_LONG)
 
 disable_warnings(unused-function)
 disable_warnings(implicit-fallthrough)
+disable_warnings(unused-but-set-variable)
+disable_warnings(dangling-pointer)
 
 # User-configurable options
 
@@ -126,7 +128,7 @@ add_definitions(-DHAVE_CONFIG_H)
 
 if(MSVC)
         add_definitions(-D_CRT_SECURE_NO_DEPRECATE -D_CRT_SECURE_NO_WARNINGS)
-endif(MSVC)
+endif()
 
 set(CMAKE_INCLUDE_CURRENT_DIR 1)
 
@@ -136,5 +138,3 @@ set(targets)
 # pcre
 include_directories(${PROJECT_BINARY_DIR}/src/pcre)
 add_library(pcre OBJECT ${PCRE_HEADERS} ${PCRE_SOURCES} ${PCREPOSIX_SOURCES})
-
-# end CMakeLists.txt

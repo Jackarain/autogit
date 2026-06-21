@@ -69,7 +69,7 @@ int git_attr_file__clear_rules(git_attr_file *file, bool need_lock)
 
 	git_vector_foreach(&file->rules, i, rule)
 		git_attr_rule__free(rule);
-	git_vector_free(&file->rules);
+	git_vector_dispose(&file->rules);
 
 	if (need_lock)
 		git_mutex_unlock(&file->lock);
@@ -143,6 +143,8 @@ int git_attr_file__load(
 		blobsize = git_blob_rawsize(blob);
 
 		GIT_ERROR_CHECK_BLOBSIZE(blobsize);
+		if (blobsize > GIT_ATTR_MAX_FILE_SIZE) /* TODO: issue warning when warning API is available */
+			goto cleanup;
 		git_str_put(&content, git_blob_rawcontent(blob), (size_t)blobsize);
 		break;
 	}
@@ -155,6 +157,7 @@ int git_attr_file__load(
 		if (p_stat(entry->fullpath, &st) < 0 ||
 			S_ISDIR(st.st_mode) ||
 			(fd = git_futils_open_ro(entry->fullpath)) < 0 ||
+			(st.st_size > GIT_ATTR_MAX_FILE_SIZE) ||
 			(error = git_futils_readbuffer_fd(&content, fd, (size_t)st.st_size)) < 0)
 			nonexistent = true;
 
@@ -198,6 +201,8 @@ int git_attr_file__load(
 		blobsize = git_blob_rawsize(blob);
 
 		GIT_ERROR_CHECK_BLOBSIZE(blobsize);
+		if (blobsize > GIT_ATTR_MAX_FILE_SIZE) /* TODO: issue warning when warning API is available */
+			goto cleanup;
 		if ((error = git_str_put(&content,
 			git_blob_rawcontent(blob), (size_t)blobsize)) < 0)
 			goto cleanup;
@@ -342,7 +347,7 @@ int git_attr_file__parse_buffer(
 {
 	const char *scan = data, *context = NULL;
 	git_attr_rule *rule = NULL;
-	int error = 0;
+	int ignorecase = 0, error = 0;
 
 	/* If subdir file path, convert context for file paths */
 	if (attrs->entry && git_fs_path_root(attrs->entry->path) < 0 &&
@@ -373,6 +378,13 @@ int git_attr_file__parse_buffer(
 			error = 0;
 			continue;
 		}
+
+		if (repo &&
+		    (error = git_repository__configmap_lookup(&ignorecase, repo, GIT_CONFIGMAP_IGNORECASE)) < 0)
+			goto out;
+
+		if (ignorecase)
+			rule->match.flags |= GIT_ATTR_FNMATCH_ICASE;
 
 		if (rule->match.flags & GIT_ATTR_FNMATCH_MACRO) {
 			/* TODO: warning if macro found in file below repo root */
@@ -477,7 +489,7 @@ bool git_attr_fnmatch__match(
 	 */
 	if (match->containing_dir) {
 		if (match->flags & GIT_ATTR_FNMATCH_ICASE) {
-			if (git__strncasecmp(path->path, match->containing_dir, match->containing_dir_length))
+			if (git__prefixcmp_icase(path->path, match->containing_dir))
 				return 0;
 		} else {
 			if (git__prefixcmp(path->path, match->containing_dir))
@@ -799,7 +811,7 @@ int git_attr_fnmatch__parse(
 	}
 
 	if (context) {
-		char *slash = strrchr(context, '/');
+		const char *slash = strrchr(context, '/');
 		size_t len;
 		if (slash) {
 			/* include the slash for easier matching */
@@ -991,7 +1003,7 @@ static void git_attr_rule__clear(git_attr_rule *rule)
 	if (!(rule->match.flags & GIT_ATTR_FNMATCH_IGNORE)) {
 		git_vector_foreach(&rule->assigns, i, assign)
 			GIT_REFCOUNT_DEC(assign, git_attr_assignment__free);
-		git_vector_free(&rule->assigns);
+		git_vector_dispose(&rule->assigns);
 	}
 
 	/* match.pattern is stored in a git_pool, so no need to free */

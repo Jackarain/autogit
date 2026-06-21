@@ -19,8 +19,8 @@
 
 /**
  * @file git2/remote.h
- * @brief Git remote management functions
- * @defgroup git_remote remote management functions
+ * @brief Remotes are where local repositories fetch from and push to
+ * @defgroup git_remote Remotes are where local repositories fetch from and push to
  * @ingroup Git
  * @{
  */
@@ -83,7 +83,7 @@ typedef enum {
 	/* Write the fetch results to FETCH_HEAD. */
 	GIT_REMOTE_UPDATE_FETCHHEAD = (1 << 0),
 
-	/* Report unchanged tips in the update_tips callback. */
+	/* Report unchanged tips in the update_refs callback. */
 	GIT_REMOTE_UPDATE_REPORT_UNCHANGED = (1 << 1)
 } git_remote_update_flags;
 
@@ -116,7 +116,10 @@ typedef struct git_remote_create_options {
 	unsigned int flags;
 } git_remote_create_options;
 
+/** Current version for the `git_remote_create_options` structure */
 #define GIT_REMOTE_CREATE_OPTIONS_VERSION 1
+
+/** Static constructor for `git_remote_create_options` */
 #define GIT_REMOTE_CREATE_OPTIONS_INIT {GIT_REMOTE_CREATE_OPTIONS_VERSION}
 
 /**
@@ -246,9 +249,9 @@ GIT_EXTERN(const char *) git_remote_name(const git_remote *remote);
 /**
  * Get the remote's url
  *
- * If url.*.insteadOf has been configured for this URL, it will
- * return the modified URL.  If `git_remote_set_instance_pushurl`
- * has been called for this remote, then that URL will be returned.
+ * If url.*.insteadOf has been configured for this URL, it will return
+ * the modified URL. This function does not consider if a push url has
+ * been configured for this remote (use `git_remote_pushurl` if needed).
  *
  * @param remote the remote
  * @return a pointer to the url
@@ -415,6 +418,19 @@ GIT_EXTERN(int) git_remote_ls(const git_remote_head ***out,  size_t *size, git_r
 GIT_EXTERN(int) git_remote_connected(const git_remote *remote);
 
 /**
+ * Get the remote repository's object format.
+ *
+ * The remote (or more exactly its transport) must have connected to
+ * the remote repository. This format is available as soon as the
+ * connection to the remote is initiated and stays connected.
+ *
+ * @param out the resulting object format type
+ * @param remote the remote
+ * @return 0 on success, or an error code
+ */
+GIT_EXTERN(int) git_remote_oid_type(git_oid_t *out, git_remote *remote);
+
+/**
  * Cancel the operation
  *
  * At certain points in its operation, the network code checks whether
@@ -466,7 +482,15 @@ typedef enum git_remote_completion_t {
 	GIT_REMOTE_COMPLETION_ERROR
 } git_remote_completion_t;
 
-/** Push network progress notification function */
+/**
+ * Push network progress notification callback.
+ *
+ * @param current The number of objects pushed so far
+ * @param total The total number of objects to push
+ * @param bytes The number of bytes pushed
+ * @param payload The user-specified payload callback
+ * @return 0 or an error code to stop the transfer
+ */
 typedef int GIT_CALLBACK(git_push_transfer_progress_cb)(
 	unsigned int current,
 	unsigned int total,
@@ -502,8 +526,12 @@ typedef struct {
  * as commands to the destination.
  * @param len number of elements in `updates`
  * @param payload Payload provided by the caller
+ * @return 0 or an error code to stop the push
  */
-typedef int GIT_CALLBACK(git_push_negotiation)(const git_push_update **updates, size_t len, void *payload);
+typedef int GIT_CALLBACK(git_push_negotiation)(
+	const git_push_update **updates,
+	size_t len,
+	void *payload);
 
 /**
  * Callback used to inform of the update status from the remote.
@@ -568,7 +596,8 @@ struct git_remote_callbacks {
 	 * Completion is called when different parts of the download
 	 * process are done (currently unused).
 	 */
-	int GIT_CALLBACK(completion)(git_remote_completion_t type, void *data);
+	int GIT_CALLBACK(completion)(git_remote_completion_t type,
+		void *data);
 
 	/**
 	 * This will be called if the remote host requires
@@ -580,9 +609,8 @@ struct git_remote_callbacks {
 	git_credential_acquire_cb credentials;
 
 	/**
-	 * If cert verification fails, this will be called to let the
-	 * user make the final decision of whether to allow the
-	 * connection to proceed. Returns 0 to allow the connection
+	 * This will be called to let the user make the final decision of whether
+	 * to allow the connection to proceed. Returns 0 to allow the connection
 	 * or a negative value to indicate an error.
 	 */
 	git_transport_certificate_check_cb certificate_check;
@@ -594,11 +622,22 @@ struct git_remote_callbacks {
 	 */
 	git_indexer_progress_cb transfer_progress;
 
+#ifdef GIT_DEPRECATE_HARD
+	void *reserved_update_tips;
+#else
 	/**
-	 * Each time a reference is updated locally, this function
-	 * will be called with information about it.
+	 * Deprecated callback for reference updates, callers should
+	 * set `update_refs` instead. This is retained for backward
+	 * compatibility; if you specify both `update_refs` and
+	 * `update_tips`, then only the `update_refs` function will
+	 * be called.
+	 *
+	 * @deprecated the `update_refs` callback in this structure
+	 * should be preferred
 	 */
-	int GIT_CALLBACK(update_tips)(const char *refname, const git_oid *a, const git_oid *b, void *data);
+	int GIT_CALLBACK(update_tips)(const char *refname,
+		const git_oid *a, const git_oid *b, void *data);
+#endif
 
 	/**
 	 * Function to call with progress information during pack
@@ -655,9 +694,25 @@ struct git_remote_callbacks {
 	 */
 	git_url_resolve_cb resolve_url;
 #endif
+
+	/**
+	 * Each time a reference is updated locally, this function
+	 * will be called with information about it. This should be
+	 * preferred over the `update_tips` callback in this
+	 * structure.
+	 */
+	int GIT_CALLBACK(update_refs)(
+		const char *refname,
+		const git_oid *a,
+		const git_oid *b,
+		git_refspec *spec,
+		void *data);
 };
 
+/** Current version for the `git_remote_callbacks_options` structure */
 #define GIT_REMOTE_CALLBACKS_VERSION 1
+
+/** Static constructor for `git_remote_callbacks_options` */
 #define GIT_REMOTE_CALLBACKS_INIT {GIT_REMOTE_CALLBACKS_VERSION}
 
 /**
@@ -708,7 +763,7 @@ typedef enum {
 	 */
 	GIT_REMOTE_DOWNLOAD_TAGS_NONE,
 	/**
-	 * Ask for the all the tags.
+	 * Ask for all the tags.
 	 */
 	GIT_REMOTE_DOWNLOAD_TAGS_ALL
 } git_remote_autotag_option_t;
@@ -784,7 +839,10 @@ typedef struct {
 	git_strarray custom_headers;
 } git_fetch_options;
 
+/** Current version for the `git_fetch_options` structure */
 #define GIT_FETCH_OPTIONS_VERSION 1
+
+/** Static constructor for `git_fetch_options` */
 #define GIT_FETCH_OPTIONS_INIT { \
 	GIT_FETCH_OPTIONS_VERSION, \
 	GIT_REMOTE_CALLBACKS_INIT, \
@@ -852,7 +910,10 @@ typedef struct {
 	git_strarray remote_push_options;
 } git_push_options;
 
+/** Current version for the `git_push_options` structure */
 #define GIT_PUSH_OPTIONS_VERSION 1
+
+/** Static constructor for `git_push_options` */
 #define GIT_PUSH_OPTIONS_INIT { GIT_PUSH_OPTIONS_VERSION, 1, GIT_REMOTE_CALLBACKS_INIT, GIT_PROXY_OPTIONS_INIT }
 
 /**
@@ -896,7 +957,10 @@ typedef struct {
 	git_strarray custom_headers;
 } git_remote_connect_options;
 
+/** Current version for the `git_remote_connect_options` structure */
 #define GIT_REMOTE_CONNECT_OPTIONS_VERSION 1
+
+/** Static constructor for `git_remote_connect_options` */
 #define GIT_REMOTE_CONNECT_OPTIONS_INIT { \
 	GIT_REMOTE_CONNECT_OPTIONS_VERSION, \
 	GIT_REMOTE_CALLBACKS_INIT, \
@@ -1016,14 +1080,14 @@ GIT_EXTERN(int) git_remote_upload(
  * `git_remote_connect` will be used (if it was called).
  *
  * @param remote the remote to update
- * @param reflog_message The message to insert into the reflogs. If
- * NULL and fetching, the default is "fetch <name>", where <name> is
- * the name of the remote (or its url, for in-memory remotes). This
- * parameter is ignored when pushing.
  * @param callbacks  pointer to the callback structure to use or NULL
  * @param update_flags the git_remote_update_flags for these tips.
  * @param download_tags what the behaviour for downloading tags is for this fetch. This is
  * ignored for push. This must be the same value passed to `git_remote_download()`.
+ * @param reflog_message The message to insert into the reflogs. If
+ * NULL and fetching, the default is "fetch <name>", where <name> is
+ * the name of the remote (or its url, for in-memory remotes). This
+ * parameter is ignored when pushing.
  * @return 0 or an error code
  */
 GIT_EXTERN(int) git_remote_update_tips(
@@ -1091,6 +1155,9 @@ GIT_EXTERN(int) git_remote_push(
 
 /**
  * Get the statistics structure that is filled in by the fetch operation.
+ *
+ * @param remote the remote to get statistics for
+ * @return the git_indexer_progress for the remote
  */
 GIT_EXTERN(const git_indexer_progress *) git_remote_stats(git_remote *remote);
 
@@ -1190,4 +1257,5 @@ GIT_EXTERN(int) git_remote_default_branch(git_buf *out, git_remote *remote);
 
 /** @} */
 GIT_END_DECL
+
 #endif

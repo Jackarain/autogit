@@ -790,12 +790,8 @@ static int load_alternates(git_odb *odb, const char *objects_dir, int alternate_
 		if (*alternate == '\0' || *alternate == '#')
 			continue;
 
-		/*
-		 * Relative path: build based on the current `objects`
-		 * folder. However, relative paths are only allowed in
-		 * the current repository.
-		 */
-		if (*alternate == '.' && !alternate_depth) {
+		/* Relative path: build based on the current `objects` folder. */
+		if (*alternate == '.') {
 			if ((result = git_str_joinpath(&alternates_path, objects_dir, alternate)) < 0)
 				break;
 			alternate = git_str_cstr(&alternates_path);
@@ -915,7 +911,7 @@ static void odb_free(git_odb *db)
 		git_mutex_unlock(&db->lock);
 
 	git_commit_graph_free(db->cgraph);
-	git_vector_free(&db->backends);
+	git_vector_dispose(&db->backends);
 	git_cache_dispose(&db->own_cache);
 	git_mutex_free(&db->lock);
 
@@ -1609,7 +1605,7 @@ int git_odb_foreach(git_odb *db, git_odb_foreach_cb cb, void *payload)
 	}
 
 cleanup:
-	git_vector_free(&backends);
+	git_vector_dispose(&backends);
 
 	return error;
 }
@@ -1796,7 +1792,8 @@ void git_odb_stream_free(git_odb_stream *stream)
 	if (stream == NULL)
 		return;
 
-	git_hash_ctx_cleanup(stream->hash_ctx);
+	if (stream->hash_ctx)
+		git_hash_ctx_cleanup(stream->hash_ctx);
 	git__free(stream->hash_ctx);
 	stream->free(stream);
 }
@@ -1922,7 +1919,7 @@ void git_odb_backend_data_free(git_odb_backend *backend, void *data)
 	git__free(data);
 }
 
-int git_odb_refresh(struct git_odb *db)
+int git_odb_refresh(git_odb *db)
 {
 	size_t i;
 	int error;

@@ -54,41 +54,87 @@ static int unc_path(git_str *buf, const char *host, const char *path)
 void test_clone_local__should_clone_local(void)
 {
 	git_str buf = GIT_STR_INIT;
+	bool local;
 
 	/* we use a fixture path because it needs to exist for us to want to clone */
 	const char *path = cl_fixture("testrepo.git");
 
+	/* empty string */
 	cl_git_pass(file_url(&buf, "", path));
-	cl_assert_equal_i(0, git_clone__should_clone_local(buf.ptr, GIT_CLONE_LOCAL_AUTO));
-	cl_assert_equal_i(1,  git_clone__should_clone_local(buf.ptr, GIT_CLONE_LOCAL));
-	cl_assert_equal_i(1,  git_clone__should_clone_local(buf.ptr, GIT_CLONE_LOCAL_NO_LINKS));
-	cl_assert_equal_i(0, git_clone__should_clone_local(buf.ptr, GIT_CLONE_NO_LOCAL));
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_LOCAL_AUTO));
+	cl_assert_equal_i(false, local);
 
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_LOCAL_AUTO));
+	cl_assert_equal_i(false, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_LOCAL));
+	cl_assert_equal_i(true, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_LOCAL_NO_LINKS));
+	cl_assert_equal_i(true, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_NO_LOCAL));
+	cl_assert_equal_i(false, local);
+
+	/* localhost is special */
 	cl_git_pass(file_url(&buf, "localhost", path));
-	cl_assert_equal_i(0, git_clone__should_clone_local(buf.ptr, GIT_CLONE_LOCAL_AUTO));
-	cl_assert_equal_i(1,  git_clone__should_clone_local(buf.ptr, GIT_CLONE_LOCAL));
-	cl_assert_equal_i(1,  git_clone__should_clone_local(buf.ptr, GIT_CLONE_LOCAL_NO_LINKS));
-	cl_assert_equal_i(0, git_clone__should_clone_local(buf.ptr, GIT_CLONE_NO_LOCAL));
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_LOCAL_AUTO));
+	cl_assert_equal_i(false, local);
 
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_LOCAL));
+	cl_assert_equal_i(true, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_LOCAL_NO_LINKS));
+	cl_assert_equal_i(true, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_NO_LOCAL));
+	cl_assert_equal_i(false, local);
+
+	/* a remote host */
 	cl_git_pass(file_url(&buf, "other-host.mycompany.com", path));
-	cl_assert_equal_i(0, git_clone__should_clone_local(buf.ptr, GIT_CLONE_LOCAL_AUTO));
-	cl_assert_equal_i(0, git_clone__should_clone_local(buf.ptr, GIT_CLONE_LOCAL));
-	cl_assert_equal_i(0, git_clone__should_clone_local(buf.ptr, GIT_CLONE_LOCAL_NO_LINKS));
-	cl_assert_equal_i(0, git_clone__should_clone_local(buf.ptr, GIT_CLONE_NO_LOCAL));
+
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_LOCAL_AUTO));
+	cl_assert_equal_i(false, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_LOCAL));
+	cl_assert_equal_i(false, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_LOCAL_NO_LINKS));
+	cl_assert_equal_i(false, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_NO_LOCAL));
+	cl_assert_equal_i(false, local);
 
 	/* Ensure that file:/// urls are percent decoded: .git == %2e%67%69%74 */
 	cl_git_pass(file_url(&buf, "", path));
 	git_str_shorten(&buf, 4);
 	cl_git_pass(git_str_puts(&buf, "%2e%67%69%74"));
-	cl_assert_equal_i(0, git_clone__should_clone_local(buf.ptr, GIT_CLONE_LOCAL_AUTO));
-	cl_assert_equal_i(1,  git_clone__should_clone_local(buf.ptr, GIT_CLONE_LOCAL));
-	cl_assert_equal_i(1,  git_clone__should_clone_local(buf.ptr, GIT_CLONE_LOCAL_NO_LINKS));
-	cl_assert_equal_i(0, git_clone__should_clone_local(buf.ptr, GIT_CLONE_NO_LOCAL));
 
-	cl_assert_equal_i(1,  git_clone__should_clone_local(path, GIT_CLONE_LOCAL_AUTO));
-	cl_assert_equal_i(1,  git_clone__should_clone_local(path, GIT_CLONE_LOCAL));
-	cl_assert_equal_i(1,  git_clone__should_clone_local(path, GIT_CLONE_LOCAL_NO_LINKS));
-	cl_assert_equal_i(0, git_clone__should_clone_local(path, GIT_CLONE_NO_LOCAL));
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_LOCAL_AUTO));
+	cl_assert_equal_i(false, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_LOCAL));
+	cl_assert_equal_i(true, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_LOCAL_NO_LINKS));
+	cl_assert_equal_i(true, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, buf.ptr, GIT_CLONE_NO_LOCAL));
+	cl_assert_equal_i(false, local);
+
+	/* a local path on disk */
+	cl_git_pass(git_clone__should_clone_local(&local, path, GIT_CLONE_LOCAL_AUTO));
+	cl_assert_equal_i(true, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, path, GIT_CLONE_LOCAL));
+
+	cl_assert_equal_i(true, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, path, GIT_CLONE_LOCAL_NO_LINKS));
+	cl_assert_equal_i(true, local);
+
+	cl_git_pass(git_clone__should_clone_local(&local, path, GIT_CLONE_NO_LOCAL));
+	cl_assert_equal_i(false, local);
 
 	git_str_dispose(&buf);
 }
@@ -219,4 +265,73 @@ void test_clone_local__shallow_fails(void)
 	opts.fetch_opts.depth = 4;
 
 	cl_git_fail_with(GIT_ENOTSUPPORTED, git_clone(&repo, cl_fixture("testrepo.git"), "./clone.git", &opts));
+}
+
+void test_clone_local__sha256_via_no_local(void)
+{
+#ifndef GIT_EXPERIMENTAL_SHA256
+	cl_skip();
+#else
+	git_repository *repo;
+	git_clone_options opts = GIT_CLONE_OPTIONS_INIT;
+
+	/*
+	 * file:// URL + GIT_CLONE_NO_LOCAL -> remote code path
+	 * Should correctly propagate the object format
+	 */
+	opts.bare = true;
+	opts.local = GIT_CLONE_NO_LOCAL;
+	cl_git_pass(git_clone(&repo, cl_git_fixture_url("testrepo_256.git"), "./clone.git", &opts));
+
+	cl_assert_equal_i(GIT_OID_SHA256, git_repository_oid_type(repo));
+
+	git_repository_free(repo);
+	cl_git_pass(git_futils_rmdir_r("./clone.git", NULL, GIT_RMDIR_REMOVE_FILES));
+#endif
+}
+
+void test_clone_local__sha256_object_format_is_propagated(void)
+{
+#ifndef GIT_EXPERIMENTAL_SHA256
+	cl_skip();
+#else
+	git_repository *repo;
+	git_clone_options opts = GIT_CLONE_OPTIONS_INIT;
+
+	/*
+	 * file:// URL + GIT_CLONE_LOCAL -> local code path with hardlinks
+	 * Should correctly propagate the object format
+	 */
+	opts.bare = true;
+	opts.local = GIT_CLONE_LOCAL;
+	cl_git_pass(git_clone(&repo, cl_git_fixture_url("testrepo_256.git"), "./clone.git", &opts));
+
+	cl_assert_equal_i(GIT_OID_SHA256, git_repository_oid_type(repo));
+
+	git_repository_free(repo);
+	cl_git_pass(git_futils_rmdir_r("./clone.git", NULL, GIT_RMDIR_REMOVE_FILES));
+#endif
+}
+
+void test_clone_local__sha256_no_links_object_format_is_propagated(void)
+{
+#ifndef GIT_EXPERIMENTAL_SHA256
+	cl_skip();
+#else
+	git_repository *repo;
+	git_clone_options opts = GIT_CLONE_OPTIONS_INIT;
+
+	/*
+	 * file:// URL + GIT_CLONE_LOCAL_NO_LINKS -> local code path with copy
+	 * Should correctly propagate the object format
+	 */
+	opts.bare = true;
+	opts.local = GIT_CLONE_LOCAL_NO_LINKS;
+	cl_git_pass(git_clone(&repo, cl_git_fixture_url("testrepo_256.git"), "./clone.git", &opts));
+
+	cl_assert_equal_i(GIT_OID_SHA256, git_repository_oid_type(repo));
+
+	git_repository_free(repo);
+	cl_git_pass(git_futils_rmdir_r("./clone.git", NULL, GIT_RMDIR_REMOVE_FILES));
+#endif
 }

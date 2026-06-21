@@ -184,8 +184,8 @@ static int url_parse_authority(
 	const char *authority,
 	size_t len)
 {
-	const char *c, *hostport_end, *host_end = NULL,
-	           *userpass_end, *user_end = NULL;
+	const char *c, *hostport_end = NULL, *host_end = NULL,
+	           *userpass_end = NULL, *user_end = NULL;
 
 	enum {
 		HOSTPORT, HOST, IPV6, HOST_END, USERPASS, USER
@@ -387,6 +387,7 @@ static int url_parse_finalize(git_net_url *url, git_net_url_parser *parser)
 	        port = GIT_STR_INIT, path = GIT_STR_INIT,
 	        query = GIT_STR_INIT, fragment = GIT_STR_INIT;
 	const char *default_port;
+	int port_specified = 0;
 	int error = 0;
 
 	if (parser->scheme_len) {
@@ -408,10 +409,13 @@ static int url_parse_finalize(git_net_url *url, git_net_url_parser *parser)
 	    (error = git_str_decode_percent(&host, parser->host, parser->host_len)) < 0)
 		goto done;
 
-	if (parser->port_len)
+	if (parser->port_len) {
+		port_specified = 1;
 		error = git_str_put(&port, parser->port, parser->port_len);
-	else if (parser->scheme_len && (default_port = default_port_for_scheme(scheme.ptr)) != NULL)
+	} else if (parser->scheme_len &&
+	           (default_port = default_port_for_scheme(scheme.ptr)) != NULL) {
 		error = git_str_puts(&port, default_port);
+	}
 
 	if (error < 0)
 		goto done;
@@ -440,6 +444,7 @@ static int url_parse_finalize(git_net_url *url, git_net_url_parser *parser)
 	url->fragment = git_str_detach(&fragment);
 	url->username = git_str_detach(&user);
 	url->password = git_str_detach(&password);
+	url->port_specified = port_specified;
 
 	error = 0;
 
@@ -459,7 +464,7 @@ done:
 int git_net_url_parse(git_net_url *url, const char *given)
 {
 	git_net_url_parser parser = GIT_NET_URL_PARSER_INIT;
-	const char *c, *authority, *path;
+	const char *c, *authority = NULL, *path = NULL;
 	size_t authority_len = 0, path_len = 0;
 	int error = 0;
 
@@ -569,7 +574,7 @@ int git_net_url_parse_http(
 	const char *given)
 {
 	git_net_url_parser parser = GIT_NET_URL_PARSER_INIT;
-	const char *c, *authority, *path = NULL;
+	const char *c = NULL, *authority = NULL, *path = NULL;
 	size_t authority_len = 0, path_len = 0;
 	int error;
 
@@ -656,7 +661,7 @@ static bool has_at(const char *str)
 int git_net_url_parse_scp(git_net_url *url, const char *given)
 {
 	const char *default_port = default_port_for_scheme("ssh");
-	const char *c, *user, *host, *port = NULL, *path = NULL;
+	const char *c, *user = NULL, *host = NULL, *port = NULL, *path = NULL;
 	size_t user_len = 0, host_len = 0, port_len = 0;
 	unsigned short bracket = 0;
 
@@ -785,10 +790,12 @@ int git_net_url_parse_scp(git_net_url *url, const char *given)
 	GIT_ASSERT(host_len);
 	GIT_ERROR_CHECK_ALLOC(url->host = git__strndup(host, host_len));
 
-	if (port_len)
+	if (port_len) {
+		url->port_specified = 1;
 		GIT_ERROR_CHECK_ALLOC(url->port = git__strndup(port, port_len));
-	else
+	} else {
 		GIT_ERROR_CHECK_ALLOC(url->port = git__strdup(default_port));
+	}
 
 	GIT_ASSERT(path);
 	GIT_ERROR_CHECK_ALLOC(url->path = git__strdup(path));
