@@ -247,6 +247,19 @@ int gitwork(gitpp::repo& repo)
 
 		gitpp::tree tree = index.write_tree();
 
+		// 构建提交信息，格式: [commit_msg] {date-time} {author} {files_count} files changed
+		auto now = boost::posix_time::second_clock::local_time();
+		std::string dt_str = boost::posix_time::to_iso_extended_string(now);
+		dt_str[10] = ' ';  // 将 'T' 替换为空格, 得到 "2012-12-08 17:29:32" 格式
+
+		std::ostringstream msg_oss;
+		if (!global_commit_message.empty())
+			msg_oss << global_commit_message << " ";
+		msg_oss << dt_str << " "
+			<< global_git_author << " "
+			<< commit_count << " files changed";
+		std::string commit_message = msg_oss.str();
+
 		// 当一个新仓库刚创建时 HEAD 并没有指向一个有效的 Commit, 这时
 		// 强行创建一个 Commit 交将 HEAD 指向这个 Initial Commit.
 		auto head = repo.head();
@@ -260,7 +273,7 @@ int gitwork(gitpp::repo& repo)
 				signature.native(),
 				signature.native(),
 				nullptr,
-				global_commit_message.c_str(),
+				commit_message.c_str(),
 				tree.native_tree(),
 				0);
 		}
@@ -277,7 +290,7 @@ int gitwork(gitpp::repo& repo)
 			(void)repo.create_commit("HEAD",
 				signature,
 				signature,
-				global_commit_message,
+				commit_message,
 				tree,
 				parent);
 		}
@@ -452,7 +465,7 @@ net::awaitable<int> co_main(int argc, char** argv)
 	// Git specific options
 	desc.add_options()
 		("repository", po::value<std::string>(&git_dir)->value_name("repository"), "Specify the Git repository location.")
-		("commit_msg", po::value<std::string>(&global_commit_message)->default_value("Commit by autogit"), "Set a custom commit message.")
+		("commit_msg", po::value<std::string>(&global_commit_message)->default_value(""), "Set a custom commit message, if empty will auto-generate.")
 		("force_push", po::value<bool>(&global_force_push)->default_value(false), "Enable force push for Git commits.")
 		("git_author", po::value<std::string>(&global_git_author)->default_value(""), "Name to be used for Git commit authorship.")
 		("git_email", po::value<std::string>(&global_git_email)->default_value(""), "Email to be associated with Git commit authorship.")
