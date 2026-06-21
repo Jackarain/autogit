@@ -245,6 +245,7 @@ if (ENABLE_USE_OPENSSL)
 			endif()
 		endif()
 	endif()
+	include_directories(${OPENSSL_INCLUDE_DIR})
 	message(STATUS "Using openssl...")
 endif()
 
