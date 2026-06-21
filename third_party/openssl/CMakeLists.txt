@@ -1086,7 +1086,7 @@ target_compile_definitions(crypto PUBLIC
     -DENGINESDIR=""
     -DMODULESDIR=""
     -DWIN32_LEAN_AND_MEAN
-    -D_GNU_SOURCE
+#   -D_GNU_SOURCE
 )
 
 # Define platform-specific macros
