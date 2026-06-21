@@ -390,6 +390,12 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 	{
 		gitpp::repo repo(git_dir);
 
+		LOG_DBG << "Open repo: " << git_dir
+			<< ", is_bare: " << repo.is_bare()
+			<< ", is_empty: " << repo.is_empty()
+			<< ", is_head_detached: " << repo.is_head_detached()
+			<< ", is_head_unborn: " << repo.is_head_unborn();
+
 		// 获取仓库的 HEAD 引用，根据引用获取最新的 commit 对象.
 		// 注意: 当新仓库首次运行时 HEAD 可能未出生 (unborn)，
 		// 此时不能直接调用 repo.head()，否则会抛出异常。
@@ -476,8 +482,8 @@ net::awaitable<int> co_main(int argc, char** argv)
 		("repository", po::value<std::string>(&git_dir)->value_name("repository"), "Specify the Git repository location.")
 		("commit_msg", po::value<std::string>(&global_commit_message)->default_value(""), "Set a custom commit message, if empty will auto-generate.")
 		("force_push", po::value<bool>(&global_force_push)->default_value(false), "Enable force push for Git commits.")
-		("git_author", po::value<std::string>(&global_git_author)->default_value(""), "Name to be used for Git commit authorship.")
-		("git_email", po::value<std::string>(&global_git_email)->default_value(""), "Email to be associated with Git commit authorship.")
+		("git_author", po::value<std::string>(&global_git_author)->default_value("autogit"), "Name to be used for Git commit authorship.")
+		("git_email", po::value<std::string>(&global_git_email)->default_value("autogit@localhost"), "Email to be associated with Git commit authorship.")
 		("git_remote_url", po::value<std::string>(&global_git_remote_url)->default_value(""), "URL for the remote Git repository.");
 
 	// HTTP authentication options
