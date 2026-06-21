@@ -262,8 +262,9 @@ int gitwork(gitpp::repo& repo)
 
 		// 当一个新仓库刚创建时 HEAD 并没有指向一个有效的 Commit, 这时
 		// 强行创建一个 Commit 交将 HEAD 指向这个 Initial Commit.
-		auto head = repo.head();
-		if (!head)
+		// 注意: 不能直接用 repo.head() 来判断，因为新仓库 HEAD 未出生
+		// (unborn) 时 git_repository_head() 会返回错误并抛出异常。
+		if (repo.is_head_unborn())
 		{
 			git_oid commit_id;
 			gitpp::signature signature(global_git_author, global_git_email);
@@ -279,6 +280,9 @@ int gitwork(gitpp::repo& repo)
 		}
 		else
 		{
+			// 获取当前的 HEAD 引用.
+			auto head = repo.head();
+
 			// 获取当前的 HEAD 提交作为父提交.
 			gitpp::oid parent_id = head.target();
 			gitpp::commit parent = repo.lookup_commit(parent_id);
@@ -387,17 +391,22 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 		gitpp::repo repo(git_dir);
 
 		// 获取仓库的 HEAD 引用，根据引用获取最新的 commit 对象.
-		gitpp::reference head = repo.head();
-		try
+		// 注意: 当新仓库首次运行时 HEAD 可能未出生 (unborn)，
+		// 此时不能直接调用 repo.head()，否则会抛出异常。
+		if (!repo.is_head_unborn())
 		{
-			gitpp::commit commit = repo.lookup_commit(head.target());
+			gitpp::reference head = repo.head();
+			try
+			{
+				gitpp::commit commit = repo.lookup_commit(head.target());
 
-			// 读取 commit 对象的提交信息.
-			LOG_DBG << "Commit: " << commit.message();
-		}
-		catch (const std::exception& e)
-		{
-			LOG_WARN << "lookup_commit, exception: " << e.what();
+				// 读取 commit 对象的提交信息.
+				LOG_DBG << "Commit: " << commit.message();
+			}
+			catch (const std::exception& e)
+			{
+				LOG_WARN << "lookup_commit, exception: " << e.what();
+			}
 		}
 
 		watchman::watcher monitor(executor, boost::filesystem::path(git_dir));
