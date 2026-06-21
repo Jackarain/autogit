@@ -245,7 +245,6 @@ if (ENABLE_USE_OPENSSL)
 			endif()
 		endif()
 	endif()
-	include_directories(${OPENSSL_INCLUDE_DIR})
 	message(STATUS "Using openssl...")
 endif()
 
@@ -396,9 +395,13 @@ set(USE_WINHTTP OFF)
 set(USE_NTLMCLIENT OFF)
 set(USE_ICONV OFF)
 set(USE_BUNDLED_ZLIB OFF)
+
+#set(USE_SHA1 "OpenSSL")
+#set(USE_SHA256 "OpenSSL")
+
 set(USE_SHA1 "OpenSSL")
 set(USE_SHA256 "OpenSSL")
-
+set(USE_HTTP_PARSER "builtin") # default use llhttp
 set(REGEX_BACKEND "builtin")
 set(SONAME OFF)
 set(GIT_SSH ON)
