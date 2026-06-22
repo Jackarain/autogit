@@ -409,6 +409,7 @@ set(GIT_SSH ON)
 
 add_definitions(-DGIT_OPENSSL)
 add_definitions(-DGIT_SSH)
+add_definitions(-DGIT_SSH_LIBSSH2)
 add_definitions(-DGIT_HTTPS)
 
 include_directories(${ZLIB_INCLUDE_DIR})
