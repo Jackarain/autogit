@@ -1,13 +1,13 @@
 ﻿// ============================================================================
-// gitpp  --  Modern C++20 wrapper around libgit2
+// gitpp  --  基于 libgit2 的现代 C++20 封装
 //
-// Features:
-//   o  RAII via std::unique_ptr with custom deleters -- no manual free()
-//   o  std::source_location integrated error reporting
-//   o  constexpr oid with C++20 spaceship operator  <=>
-//   o  [[nodiscard]] throughout
-//   o  std::span for buffer views
-//   o  No boost dependency
+// 特性：
+//   o  通过 std::unique_ptr 和自定义删除器实现 RAII -- 无需手动 free()
+//   o  集成 std::source_location 的错误报告
+//   o  支持 C++20 三路比较运算符 <=> 的 constexpr oid
+//   o  全面使用 [[nodiscard]]
+//   o  使用 std::span 进行缓冲区视图
+//   o  无 Boost 依赖
 // ============================================================================
 
 #pragma once
@@ -25,7 +25,7 @@
 #include <memory>
 #include <optional>
 
-// C++20 std::source_location (clang 15+ / libc++ 16+)
+// C++20 std::source_location（clang 15+ / libc++ 16+）
 #if __has_include(<source_location>)
 #  include <source_location>
 #  define GITPP_HAS_SOURCE_LOCATION 1
@@ -47,7 +47,7 @@
 
 namespace gitpp {
 
-// Forward declarations
+// 前向声明
 class repo;
 class oid;
 class reference;
@@ -67,7 +67,7 @@ class tag;
 class diff;
 
 // ---------------------------------------------------------------------------
-// RAII helper: generic deleter for libgit2 resources
+// RAII 辅助：libgit2 资源的通用删除器
 // ---------------------------------------------------------------------------
 
 template <auto FreeFn>
@@ -89,7 +89,7 @@ using unique_branch_iterator = std::unique_ptr<git_branch_iterator, git_deleter<
 using unique_diff            = std::unique_ptr<git_diff,           git_deleter<git_diff_free>>;
 using unique_tag             = std::unique_ptr<git_tag,            git_deleter<git_tag_free>>;
 
-// Deleter for git_object hierarchy (commit, tree, blob, tag)
+// git_object 层次结构（commit、tree、blob、tag）的删除器
 template <typename T>
 struct object_deleter {
     void operator()(T* p) const noexcept {
@@ -101,7 +101,7 @@ template <typename T>
 using unique_git_object = std::unique_ptr<T, object_deleter<T>>;
 
 // ---------------------------------------------------------------------------
-// Exception types with C++20 source_location
+// 异常类型（支持 C++20 source_location）
 // ---------------------------------------------------------------------------
 
 namespace exception {
@@ -140,7 +140,7 @@ inline void throw_on_error(int code, std::source_location loc = std::source_loca
         throw_error(code, std::move(loc));
 }
 
-#else // fallback without source_location
+#else // 无 source_location 时的回退
 
 class error : public std::exception {
 public:
@@ -160,12 +160,12 @@ inline void throw_on_error(int code) {
         throw_error(code);
 }
 
-#endif
+#endif // GITPP_HAS_SOURCE_LOCATION
 
-} // namespace exception
+} // namespace exception（异常命名空间）
 
 // ---------------------------------------------------------------------------
-// oid -- Git object ID (SHA-1), fully constexpr
+// oid -- Git 对象 ID（SHA-1），完全 constexpr
 // ---------------------------------------------------------------------------
 
 class oid {
@@ -188,8 +188,8 @@ public:
         return {oid_.id};
     }
 
-    // C++20 spaceship operator
-    // Manual constexpr loop (std::memcmp is not constexpr on all platforms)
+    // C++20 三路比较运算符
+    // 手动 constexpr 循环（std::memcmp 并非在所有平台上都是 constexpr）
     GITPP_NODISCARD constexpr std::strong_ordering operator<=>(const oid& other) const noexcept {
         for (std::size_t i = 0; i < hash_size; ++i) {
             if (oid_.id[i] != other.oid_.id[i])
@@ -223,7 +223,7 @@ private:
 static_assert(std::is_trivially_copyable_v<oid>);
 
 // ---------------------------------------------------------------------------
-// reference
+// reference（引用）
 // ---------------------------------------------------------------------------
 
 class reference {
@@ -245,7 +245,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// object hierarchy (object -> blob, commit, tree)
+// 对象层次结构（object -> blob, commit, tree）
 // ---------------------------------------------------------------------------
 
 class object {
@@ -267,7 +267,7 @@ protected:
     unique_git_object<git_object> obj_;
 };
 
-// --- blob ------------------------------------------------------------------
+// --- blob（数据对象）------------------------------------------------------------------
 
 class blob : public object {
 public:
@@ -281,7 +281,7 @@ public:
     GITPP_NODISCARD       git_blob* native_blob()       noexcept;
 };
 
-// --- commit ----------------------------------------------------------------
+// --- commit（提交）----------------------------------------------------------------
 
 class commit : public object {
 public:
@@ -297,7 +297,7 @@ public:
     GITPP_NODISCARD       git_commit* native_commit()       noexcept;
 };
 
-// --- tree_entry ------------------------------------------------------------
+// --- tree_entry（树条目）------------------------------------------------------------
 
 class tree_entry {
 public:
@@ -324,7 +324,7 @@ private:
     bool owned_ = false;
 };
 
-// --- tree ------------------------------------------------------------------
+// --- tree（树）------------------------------------------------------------------
 
 class tree : public object {
 public:
@@ -368,7 +368,7 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// status_list
+// status_list（状态列表）
 // ---------------------------------------------------------------------------
 
 class status_list {
@@ -416,7 +416,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// index
+// index（索引）
 // ---------------------------------------------------------------------------
 
 class index {
@@ -441,7 +441,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// signature
+// signature（签名）
 // ---------------------------------------------------------------------------
 
 class signature {
@@ -461,7 +461,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// remote
+// remote（远程）
 // ---------------------------------------------------------------------------
 
 class remote {
@@ -485,7 +485,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// revwalk
+// revwalk（修订遍历器）
 // ---------------------------------------------------------------------------
 
 class revwalk {
@@ -510,7 +510,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// branch
+// branch（分支）
 // ---------------------------------------------------------------------------
 
 class branch {
@@ -531,7 +531,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// branch_iterator
+// branch_iterator（分支迭代器）
 // ---------------------------------------------------------------------------
 
 class branch_iterator {
@@ -550,7 +550,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// tag
+// tag（标签）
 // ---------------------------------------------------------------------------
 
 class tag {
@@ -575,7 +575,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// diff
+// diff（差异）
 // ---------------------------------------------------------------------------
 
 class diff {
@@ -599,7 +599,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// repo -- the main repository handle
+// repo -- 主仓库句柄
 // ---------------------------------------------------------------------------
 
 class repo {
@@ -614,19 +614,19 @@ public:
     GITPP_NODISCARD git_repository*       native()       noexcept { return repo_.get(); }
     GITPP_NODISCARD const git_repository* native() const noexcept { return repo_.get(); }
 
-    // index & status
+    // 索引与状态
     GITPP_NODISCARD index       get_index();
     GITPP_NODISCARD status_list new_status_list();
     void        index_add_bypath(const std::string& path);
 
-    // references
+    // 引用
     GITPP_NODISCARD reference head() const;
     GITPP_NODISCARD reference lookup_reference(const std::string& name) const;
 
-    // remotes
+    // 远程
     GITPP_NODISCARD remote get_remote(const std::string& remote_name);
 
-    // commits
+    // 提交
     GITPP_NODISCARD commit lookup_commit(const oid& commit_id);
     GITPP_NODISCARD commit create_commit(const std::string& update_ref,
                                           const signature& author,
@@ -641,28 +641,28 @@ public:
                                           const tree& tree_obj,
                                           std::vector<commit> parents);
 
-    // trees & blobs
+    // 树与数据对象
     GITPP_NODISCARD tree  get_tree_by_commit(const oid& commit_id);
     GITPP_NODISCARD tree  get_tree_by_treeid(const oid& tree_oid);
     GITPP_NODISCARD blob  get_blob(const oid& blob_id) const;
 
-    // revwalk
+    // 修订遍历器
     GITPP_NODISCARD revwalk new_revwalk();
 
-    // branches
+    // 分支
     GITPP_NODISCARD branch          lookup_branch(const std::string& name,
                                                    git_branch_t type = GIT_BRANCH_LOCAL);
     GITPP_NODISCARD branch_iterator new_branch_iterator(git_branch_t type = GIT_BRANCH_LOCAL);
 
-    // tags
+    // 标签
     GITPP_NODISCARD tag lookup_tag(const oid& tag_id);
 
-    // diff
+    // 差异
     GITPP_NODISCARD diff diff_trees(const tree& old_tree, const tree& new_tree);
     GITPP_NODISCARD diff diff_tree_to_workdir(const tree& old_tree);
     GITPP_NODISCARD diff diff_index_to_workdir();
 
-    // properties
+    // 属性
     GITPP_NODISCARD bool        is_bare()          const noexcept;
     GITPP_NODISCARD bool        is_empty()         const;
     GITPP_NODISCARD bool        is_head_detached() const;
@@ -678,7 +678,7 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// Free functions
+// 自由函数（Free functions）
 // ---------------------------------------------------------------------------
 
 GITPP_NODISCARD bool is_git_repo(const std::filesystem::path& dir);
@@ -686,4 +686,4 @@ GITPP_NODISCARD repo init_repo(const std::filesystem::path& repo_path,
                                 const std::string& url = {},
                                 bool bare = false);
 
-} // namespace gitpp
+} // namespace gitpp（gitpp 命名空间）

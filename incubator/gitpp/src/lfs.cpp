@@ -1,5 +1,5 @@
 // ============================================================================
-// gitpp/lfs.cpp  --  Git LFS support for gitpp  (implementation)
+// gitpp/lfs.cpp  --  gitpp 的 Git LFS 支持（实现）
 // ============================================================================
 
 #include "gitpp/lfs.hpp"
@@ -24,13 +24,13 @@ namespace gitpp {
 namespace lfs {
 
 // ============================================================================
-// SHA-256 helper (without external dependency)
+// SHA-256 辅助函数（无外部依赖）
 // ============================================================================
 
 namespace {
 
-// Minimal SHA-256 implementation for computing LFS OIDs.
-// This avoids pulling in an extra crypto dependency.
+// 用于计算 LFS OID 的最小 SHA-256 实现。
+// 这样可以避免引入额外的加密依赖。
 struct sha256_ctx {
     uint32_t state[8];
     uint64_t count;
@@ -161,15 +161,15 @@ static void sha256_update(sha256_ctx* ctx,
 
 static void sha256_final(sha256_ctx* ctx, unsigned char* hash) {
     uint64_t bits = ctx->count * 8;
-    // Append 0x80
+    // 追加 0x80
     unsigned char pad = 0x80;
     sha256_update(ctx, &pad, 1);
-    // Pad with zeros
+    // 用零填充
     while (ctx->buf_len != 56) {
         unsigned char zero = 0;
         sha256_update(ctx, &zero, 1);
     }
-    // Append length as big-endian 64-bit
+    // 追加长度（64 位大端序）
     for (int i = 7; i >= 0; --i) {
         unsigned char b = (unsigned char)(bits >> (i * 8));
         sha256_update(ctx, &b, 1);
@@ -217,10 +217,10 @@ static std::int64_t get_file_size(const std::filesystem::path& path) {
     return ec ? -1 : static_cast<std::int64_t>(sz);
 }
 
-} // anonymous namespace
+} // 匿名命名空间
 
 // ============================================================================
-// pointer
+// pointer（指针）
 // ============================================================================
 
 std::string pointer::encode() const {
@@ -239,7 +239,7 @@ std::string pointer::encode() const {
 }
 
 std::optional<pointer> pointer::decode(std::string_view text) noexcept {
-    // Must have exactly three lines.
+    // 必须恰好有三行。
     std::string_view remaining = text;
     std::string lines[3];
     int line_count = 0;
@@ -255,14 +255,14 @@ std::optional<pointer> pointer::decode(std::string_view text) noexcept {
     if (line_count != 3)
         return std::nullopt;
 
-    // Check version line.
+    // 检查版本行。
     const std::string version_prefix = "version ";
     if (lines[0].substr(0, version_prefix.size()) != version_prefix)
         return std::nullopt;
     if (lines[0].substr(version_prefix.size()) != k_pointer_version)
         return std::nullopt;
 
-    // Check oid line: "oid sha256:<64-hex>"
+    // 检查 OID 行："oid sha256:<64 位十六进制>"
     const std::string oid_prefix = "oid sha256:";
     if (lines[1].substr(0, oid_prefix.size()) != oid_prefix)
         return std::nullopt;
@@ -274,7 +274,7 @@ std::optional<pointer> pointer::decode(std::string_view text) noexcept {
             return std::nullopt;
     }
 
-    // Check size line: "size <decimal>"
+    // 检查大小行："size <十进制数>"
     const std::string size_prefix = "size ";
     if (lines[2].substr(0, size_prefix.size()) != size_prefix)
         return std::nullopt;
@@ -284,7 +284,7 @@ std::optional<pointer> pointer::decode(std::string_view text) noexcept {
     if (end == size_str.c_str() || sz < 0)
         return std::nullopt;
 
-    // Ensure no extra content after the third line.
+    // 确保第三行之后没有额外的内容。
     if (!remaining.empty())
         return std::nullopt;
 
@@ -295,19 +295,19 @@ std::optional<pointer> pointer::create_from_file(
     const std::filesystem::path& file_path,
     const std::filesystem::path& gitdir)
 {
-    // Compute SHA-256 of the file.
+    // 计算文件的 SHA-256。
     std::string oid_hex = file_sha256(file_path);
     if (oid_hex.empty())
         return std::nullopt;
 
-    // Get file size.
+    // 获取文件大小。
     auto sz = get_file_size(file_path);
     if (sz < 0)
         return std::nullopt;
 
     pointer ptr(oid_hex, sz);
 
-    // Store the object in .git/lfs/objects/.
+    // 将对象存储到 .git/lfs/objects/ 中。
     object_store store(gitdir);
     auto stored = store.store(file_path);
     if (!stored)
@@ -326,7 +326,7 @@ bool pointer::is_pointer_file(const std::filesystem::path& path) {
     if (!file)
         return false;
 
-    // Read up to 200 bytes (a pointer file is at most ~150 bytes).
+    // 最多读取 200 字节（指针文件最多约 150 字节）。
     std::string content;
     content.resize(200, '\0');
     auto read_size = file.read(content.data(), 200).gcount();
@@ -336,7 +336,7 @@ bool pointer::is_pointer_file(const std::filesystem::path& path) {
 }
 
 // ============================================================================
-// object_store
+// object_store（对象存储）
 // ============================================================================
 
 object_store::object_store(std::filesystem::path gitdir)
@@ -358,17 +358,17 @@ std::optional<pointer> object_store::store(
 
     auto dest = object_path(oid_hex);
 
-    // Create parent directories.
+    // 创建父目录。
     std::error_code ec;
     std::filesystem::create_directories(dest.parent_path(), ec);
     if (ec)
         return std::nullopt;
 
-    // If the object already exists, we're done.
+    // 如果对象已存在，则完成。
     if (std::filesystem::exists(dest, ec))
         return pointer(oid_hex, sz);
 
-    // Copy the file content to the LFS object store.
+    // 将文件内容复制到 LFS 对象存储。
     std::error_code copy_ec;
     std::filesystem::copy_file(file_path, dest,
         std::filesystem::copy_options::none, copy_ec);
@@ -384,7 +384,7 @@ std::filesystem::path object_store::object_path(
     if (oid.size() < 4)
         return objects_root_;
 
-    // .git/lfs/objects/<xx>/<xx>/<oid>
+    // .git/lfs/objects/<xx>/<xx>/<oid> 目录结构
     auto sub1 = oid.substr(0, 2);
     auto sub2 = oid.substr(2, 2);
     return objects_root_ / sub1 / sub2 / oid;
@@ -396,18 +396,18 @@ bool object_store::exists(const std::string& oid) const {
 }
 
 // ============================================================================
-// attribute matching
+// 属性匹配（attribute matching）
 // ============================================================================
 
 namespace {
 
-// Parse a single .gitattributes line looking for "filter=lfs".
-// Returns the pattern part of the line if the line has filter=lfs.
-// Lines starting with # are comments.  Leading/trailing whitespace is trimmed.
+// 解析单行 .gitattributes，查找 "filter=lfs"。
+// 如果该行包含 filter=lfs，则返回模式部分。
+// 以 # 开头的行是注释。会修剪前导/尾随空白。
 static std::optional<std::string> parse_lfs_attribute_line(
     std::string_view line)
 {
-    // Trim whitespace.
+    // 修剪空白。
     while (!line.empty() && (line.front() == ' ' || line.front() == '\t'))
         line.remove_prefix(1);
     while (!line.empty() && (line.back() == ' ' ||
@@ -417,7 +417,7 @@ static std::optional<std::string> parse_lfs_attribute_line(
     if (line.empty() || line.front() == '#')
         return std::nullopt;
 
-    // Find the pattern (first token, before any space/tab).
+    // 查找模式（第一个标记，在空格/制表符之前）。
     auto pos = line.find_first_of(" \t");
     if (pos == std::string_view::npos)
         return std::nullopt;
@@ -425,10 +425,10 @@ static std::optional<std::string> parse_lfs_attribute_line(
     std::string_view pattern = line.substr(0, pos);
     std::string_view attrs = line.substr(pos + 1);
 
-    // Look for "filter=lfs" in the attributes portion.
-    // Attributes are separated by spaces/tabs.
+    // 在属性部分中查找 "filter=lfs"。
+    // 属性由空格/制表符分隔。
     for (;;) {
-        // Trim leading whitespace.
+        // 修剪前导空白。
         while (!attrs.empty() &&
                (attrs.front() == ' ' || attrs.front() == '\t'))
             attrs.remove_prefix(1);
@@ -452,7 +452,7 @@ static std::optional<std::string> parse_lfs_attribute_line(
     return std::nullopt;
 }
 
-// Load patterns from a .gitattributes file content.
+// 从 .gitattributes 文件内容加载模式。
 static std::vector<std::string> load_patterns_from_content(
     std::string_view content)
 {
@@ -478,10 +478,10 @@ static std::vector<std::string> load_patterns_from_content(
     return patterns;
 }
 
-// Simple glob matching: supports *, **, ?  (no bracket expressions).
-// '*' matches anything except '/'  (like .gitattributes).
-// '**' matches anything including '/'.
-// '?' matches any single character except '/'.
+// 简单的 glob 匹配：支持 *, **, ?（不支持括号表达式）。
+// '*' 匹配除了 '/' 之外的任何内容（类似 .gitattributes）。
+// '**' 匹配包括 '/' 在内的任何内容。
+// '?' 匹配除 '/' 之外的任何单个字符。
 static bool glob_match(std::string_view pattern,
                        std::string_view path) noexcept
 {
@@ -492,18 +492,17 @@ static bool glob_match(std::string_view pattern,
 
     while (pi != pe && si != se) {
         if (*pi == '*') {
-            // Check for '**' pattern.
+            // 检查 '**' 模式。
             if (pi + 1 != pe && *(pi + 1) == '*') {
-                // '**' matches everything including '/'.
+                // '**' 匹配包括 '/' 在内的任何内容。
                 pi += 2;
-                // Skip trailing '/' in pattern if present.
+                // 如果模式中有尾随的 '/'，则跳过。
                 if (pi != pe && *pi == '/')
                     ++pi;
-                // If '**' is at the end, it matches everything.
+                // 如果 '**' 在末尾，则匹配一切。
                 if (pi == pe)
                     return true;
-                // Try to match the rest of pattern at each position.
-                while (si != se) {
+                // 尝试在每个位置上匹配模式的其余部分。
                     if (glob_match(std::string_view(&*pi, pe - pi),
                                    std::string_view(&*si, se - si)))
                         return true;
@@ -511,7 +510,7 @@ static bool glob_match(std::string_view pattern,
                 }
                 return false;
             }
-            // Single '*' — skip until '/' or end.
+            // 单个 '*' — 跳过直到 '/' 或结束。
             ++pi;
             while (si != se && *si != '/') {
                 if (glob_match(std::string_view(&*pi, pe - pi),
@@ -519,7 +518,7 @@ static bool glob_match(std::string_view pattern,
                     return true;
                 ++si;
             }
-            // Also try matching zero characters.
+            // 也尝试匹配零个字符。
             if (glob_match(std::string_view(&*pi, pe - pi),
                            std::string_view(&*si, se - si)))
                 return true;
@@ -537,9 +536,9 @@ static bool glob_match(std::string_view pattern,
         ++pi; ++si;
     }
 
-    // Skip trailing '*' in pattern.
+    // 跳过模式中尾随的 '*'。
     while (pi != pe && *pi == '*') {
-        // Check for '**'.
+        // 检查 '**'。
         if (pi + 1 != pe && *(pi + 1) == '*')
             pi += 2;
         else
@@ -549,7 +548,7 @@ static bool glob_match(std::string_view pattern,
     return pi == pe && si == se;
 }
 
-} // anonymous namespace
+} // 匿名命名空间
 
 std::vector<std::string> load_lfs_patterns(
     const std::filesystem::path& gitdir,
@@ -557,7 +556,7 @@ std::vector<std::string> load_lfs_patterns(
 {
     std::vector<std::string> patterns;
 
-    // 1. Try to read .gitattributes from the worktree root.
+    // 1. 尝试从工作树根目录读取 .gitattributes。
     if (repo) {
         const char* workdir = git_repository_workdir(repo);
         if (workdir) {
@@ -575,9 +574,9 @@ std::vector<std::string> load_lfs_patterns(
         }
     }
 
-    // 2. Also try to read .gitattributes from HEAD (if available).
+    // 2. 也尝试从 HEAD 读取 .gitattributes（如果可用）。
     if (repo) {
-        // Use libgit2 to read .gitattributes from HEAD.
+        // 使用 libgit2 从 HEAD 读取 .gitattributes。
         git_oid head_oid;
         if (git_reference_name_to_id(&head_oid, repo, "HEAD") == 0) {
             git_commit* commit = nullptr;
@@ -609,7 +608,7 @@ std::vector<std::string> load_lfs_patterns(
         }
     }
 
-    // Deduplicate (worktree version takes precedence).
+    // 去重（工作树版本优先）。
     std::vector<std::string> result;
     std::unordered_set<std::string> seen;
     for (auto& pat : patterns) {
@@ -639,7 +638,7 @@ bool is_lfs_tracked(std::string_view path,
 }
 
 // ============================================================================
-// pointer file I/O
+// 指针文件 I/O（pointer file I/O）
 // ============================================================================
 
 bool write_pointer_file(const std::filesystem::path& dest,
@@ -675,7 +674,7 @@ std::optional<pointer> read_pointer_file(
 }
 
 // ============================================================================
-// Batch-upload support
+// 批量上传支持（Batch-upload support）
 // ============================================================================
 
 std::vector<lfs_object> collect_lfs_objects(
@@ -696,7 +695,7 @@ std::vector<lfs_object> collect_lfs_objects(
             continue;
         }
 
-        // Walk the tree recursively to find LFS pointer blobs.
+        // 递归遍历树以查找 LFS 指针数据对象。
         std::function<void(git_tree*)> walk_tree =
             [&](git_tree* t) {
                 size_t count = git_tree_entrycount(t);
@@ -721,7 +720,7 @@ std::vector<lfs_object> collect_lfs_objects(
                                 (const char*)git_blob_rawcontent(blob);
                             auto blob_sz = git_blob_rawsize(blob);
 
-                            // Check if this blob is an LFS pointer.
+                            // 检查此数据对象是否为 LFS 指针。
                             auto ptr = pointer::decode(
                                 std::string_view(content, blob_sz));
                             if (ptr.has_value()) {
@@ -757,15 +756,15 @@ int push_lfs_objects(
     if (objects.empty())
         return 0;
 
-    // Build the LFS API endpoint from the remote URL.
-    // Git LFS uses: <remote_url>/objects/batch
+    // 从远程 URL 构建 LFS API 端点。
+    // Git LFS 使用：<remote_url>/objects/batch
     std::string lfs_endpoint = remote_url;
-    // Strip trailing .git if present.
+    // 去除末尾的 .git（如果存在）。
     if (lfs_endpoint.size() > 4 &&
         lfs_endpoint.substr(lfs_endpoint.size() - 4) == ".git") {
         lfs_endpoint.resize(lfs_endpoint.size() - 4);
     }
-    // Remove trailing slash.
+    // 去除末尾的斜杠。
     while (!lfs_endpoint.empty() && lfs_endpoint.back() == '/')
         lfs_endpoint.pop_back();
     lfs_endpoint += "/objects/batch";
@@ -774,18 +773,18 @@ int push_lfs_objects(
     (void)username;
     (void)password;
 
-    // For now, we return 0 (success) and defer to the external
-    // `git lfs push` command which is more reliable.
+    // 目前返回 0（成功）并委托给外部的
+    // `git lfs push` 命令，该命令更可靠。
     //
-    // In a full implementation, this would perform an HTTP POST to
-    // the LFS batch API to upload objects.  The current stub
-    // allows the caller to fall back to `git lfs push --object-id`.
+    // 在完整实现中，这将执行 HTTP POST 到
+    // LFS 批量 API 以上传对象。当前的存根
+    // 允许调用者回退到 `git lfs push --object-id`。
     //
-    // TODO: Implement direct HTTP batch upload using Boost.Asio
-    //       or libcurl for a fully self-contained solution.
+    // TODO：使用 Boost.Asio 或 libcurl 实现直接 HTTP 批量上传，
+    //      以实现完全自包含的解决方案。
 
     return 0;
 }
 
-} // namespace lfs
-} // namespace gitpp
+} // namespace lfs（LFS 命名空间）
+} // namespace gitpp（gitpp 命名空间）

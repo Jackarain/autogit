@@ -1,6 +1,6 @@
 ﻿\
 // ============================================================================
-// gitpp  --  Modern C++20 wrapper around libgit2  (implementation)
+// gitpp  --  基于 libgit2 的现代 C++20 封装（实现）
 // ============================================================================
 
 #include "gitpp/gitpp.hpp"
@@ -13,7 +13,7 @@
 namespace gitpp {
 
 // ============================================================================
-// Auto-initialisation of libgit2 (thread-safe ref-counted)
+// libgit2 自动初始化（线程安全，引用计数）
 // ============================================================================
 
 namespace {
@@ -25,10 +25,10 @@ struct auto_init_libgit2 {
 
 const auto_init_libgit2 s_ensure_init;
 
-} // anonymous namespace
+} // 匿名命名空间
 
 // ============================================================================
-// exception::error
+// exception::error（异常::错误）
 // ============================================================================
 
 #if GITPP_HAS_SOURCE_LOCATION
@@ -81,7 +81,7 @@ exception::error::error(int code) noexcept
 #endif
 
 // ============================================================================
-// oid
+// oid（对象 ID）
 // ============================================================================
 
 std::string oid::to_string() const {
@@ -97,7 +97,7 @@ oid oid::from_string(std::string_view hex) {
 }
 
 // ============================================================================
-// reference
+// reference（引用）
 // ============================================================================
 
 reference::reference(git_reference* ref) noexcept
@@ -139,7 +139,7 @@ std::string reference::shorthand() const {
 }
 
 // ============================================================================
-// object
+// object（对象）
 // ============================================================================
 
 oid object::id() const noexcept {
@@ -151,7 +151,7 @@ git_object_t object::type() const noexcept {
 }
 
 // ============================================================================
-// blob
+// blob（数据对象）
 // ============================================================================
 
 blob::blob(git_blob* b) noexcept
@@ -187,7 +187,7 @@ git_blob* blob::native_blob() noexcept {
 }
 
 // ============================================================================
-// commit
+// commit（提交）
 // ============================================================================
 
 commit::commit(git_commit* c) noexcept
@@ -232,7 +232,7 @@ git_commit* commit::native_commit() noexcept {
 }
 
 // ============================================================================
-// tree_entry
+// tree_entry（树条目）
 // ============================================================================
 
 tree_entry::tree_entry(const git_tree_entry* entry) noexcept
@@ -305,7 +305,7 @@ git_filemode_t tree_entry::filemode() const noexcept {
 }
 
 // ============================================================================
-// tree
+// tree（树）
 // ============================================================================
 
 tree::tree(git_tree* t) noexcept
@@ -337,7 +337,7 @@ git_tree* tree::native_tree() noexcept {
     return reinterpret_cast<git_tree*>(obj_.get());
 }
 
-// --- tree::iterator -------------------------------------------------------
+// --- tree::iterator（树迭代器）-------------------------------------------------------
 
 tree::iterator::iterator(const tree* parent, std::size_t index) noexcept
     : parent_(parent), index_(index)
@@ -352,7 +352,7 @@ tree_entry tree::iterator::operator*() const noexcept {
 
 tree::iterator& tree::iterator::operator++() noexcept {
     ++index_;
-    entry_ = tree_entry{}; // invalidate cached entry
+    entry_ = tree_entry{}; // 使缓存的条目失效
     return *this;
 }
 
@@ -360,7 +360,7 @@ tree::iterator tree::begin() const noexcept { return iterator(this, 0); }
 tree::iterator tree::end() const noexcept { return iterator(this, count()); }
 
 // ============================================================================
-// status_list
+// status_list（状态列表）
 // ============================================================================
 
 status_list::status_list(git_status_list* sl) noexcept
@@ -380,7 +380,7 @@ status_list::iterator status_list::end() noexcept {
     return iterator(*this, size());
 }
 
-// --- status_list::iterator ------------------------------------------------
+// --- status_list::iterator（状态列表迭代器）------------------------------------------------
 
 status_list::iterator::iterator(status_list& parent, std::size_t idx) noexcept
     : parent_(&parent), idx_(idx)
@@ -399,7 +399,7 @@ status_list::iterator& status_list::iterator::operator++() noexcept {
 }
 
 // ============================================================================
-// index
+// index（索引）
 // ============================================================================
 
 index::index(repo* owner, git_index* gi) noexcept
@@ -412,9 +412,9 @@ tree index::write_tree() {
         throw std::logic_error("index::write_tree: null index");
     git_oid tree_id;
     exception::throw_on_error(git_index_write_tree(&tree_id, idx_.get()));
-    // We need the repo to look up the tree -- stored via owner_
-    // This approach matches existing usage patterns.
-    // If owner_ is null, this would fail.
+    // 我们需要仓库来查找树对象 -- 通过 owner_ 存储
+    // 这种方法匹配现有的使用模式。
+    // 如果 owner_ 为空，则会失败。
     if (!owner_)
         throw std::logic_error("index::write_tree: no owner repo");
     return owner_->get_tree_by_treeid(oid(&tree_id));
@@ -439,7 +439,7 @@ void index::write() const {
 }
 
 // ============================================================================
-// signature
+// signature（签名）
 // ============================================================================
 
 signature::signature(const std::string& name, const std::string& email) {
@@ -470,7 +470,7 @@ signature& signature::operator=(const signature& other) {
 }
 
 // ============================================================================
-// remote
+// remote（远程）
 // ============================================================================
 
 remote::remote(git_remote* r) noexcept
@@ -523,7 +523,7 @@ std::string remote::url() const noexcept {
 }
 
 // ============================================================================
-// revwalk
+// revwalk（修订遍历器）
 // ============================================================================
 
 revwalk::revwalk(git_repository* repo) {
@@ -556,14 +556,14 @@ oid revwalk::next() {
     git_oid out;
     int err = git_revwalk_next(&out, walk_.get());
     if (err == GIT_ITEROVER)
-        return {};  // zero oid signals end
+        return {};  // 返回空 oid 表示遍历结束
     if (err < 0)
         exception::throw_on_error(err);
     return oid(&out);
 }
 
 // ============================================================================
-// branch
+// branch（分支）
 // ============================================================================
 
 branch::branch(git_reference* ref) noexcept
@@ -601,7 +601,7 @@ bool branch::is_checked_out() const noexcept {
 }
 
 // ============================================================================
-// branch_iterator
+// branch_iterator（分支迭代器）
 // ============================================================================
 
 branch_iterator::branch_iterator(git_repository* repo, git_branch_t type) {
@@ -622,7 +622,7 @@ branch branch_iterator::next() {
 }
 
 // ============================================================================
-// tag
+// tag（标签）
 // ============================================================================
 
 tag::tag(git_tag* t) noexcept
@@ -650,7 +650,7 @@ git_object_t tag::target_type() const noexcept {
 }
 
 // ============================================================================
-// diff
+// diff（差异）
 // ============================================================================
 
 diff::diff(git_diff* d) noexcept
@@ -688,7 +688,7 @@ std::string diff::to_string() const {
 }
 
 // ============================================================================
-// repo
+// repo（仓库）
 // ============================================================================
 
 repo::repo(const std::filesystem::path& repo_dir) {
@@ -708,7 +708,7 @@ void repo::check() const {
         throw std::logic_error("repo: null repository handle");
 }
 
-// --- properties -----------------------------------------------------------
+// --- 属性（properties）-----------------------------------------------------------
 
 bool repo::is_bare() const noexcept {
     return repo_ ? git_repository_is_bare(repo_.get()) != 0 : false;
@@ -740,7 +740,7 @@ std::string repo::workdir() const {
     return wd ? std::string(wd) : std::string{};
 }
 
-// --- index & status -------------------------------------------------------
+// --- 索引与状态（index & status）-------------------------------------------------------
 
 index repo::get_index() {
     check();
@@ -763,7 +763,7 @@ void repo::index_add_bypath(const std::string& path) {
     idx.write();
 }
 
-// --- references -----------------------------------------------------------
+// --- 引用（references）-----------------------------------------------------------
 
 reference repo::head() const {
     check();
@@ -779,7 +779,7 @@ reference repo::lookup_reference(const std::string& name) const {
     return reference(out);
 }
 
-// --- remotes --------------------------------------------------------------
+// --- 远程（remotes）--------------------------------------------------------------
 
 remote repo::get_remote(const std::string& remote_name) {
     check();
@@ -788,7 +788,7 @@ remote repo::get_remote(const std::string& remote_name) {
     return remote(gr);
 }
 
-// --- commits --------------------------------------------------------------
+// --- 提交（commits）--------------------------------------------------------------
 
 commit repo::lookup_commit(const oid& commit_id) {
     check();
@@ -813,10 +813,10 @@ commit repo::create_commit(const std::string& update_ref,
         update_ref.empty() ? nullptr : update_ref.c_str(),
         author.native(),
         committer.native(),
-        nullptr,                    // encoding
+        nullptr,                    // 编码
         message.c_str(),
         tree_obj.native_tree(),
-        1,                          // parent count
+        1,                          // 父提交数量
         parents_array));
 
     return lookup_commit(oid(&commit_id));
@@ -852,7 +852,7 @@ commit repo::create_commit(const std::string& update_ref,
     return lookup_commit(oid(&commit_id));
 }
 
-// --- trees & blobs --------------------------------------------------------
+// --- 树与数据对象（trees & blobs）--------------------------------------------------------
 
 tree repo::get_tree_by_commit(const oid& commit_id) {
     check();
@@ -881,14 +881,14 @@ blob repo::get_blob(const oid& blob_id) const {
     return blob(b);
 }
 
-// --- revwalk --------------------------------------------------------------
+// --- 修订遍历器（revwalk）--------------------------------------------------------------
 
 revwalk repo::new_revwalk() {
     check();
     return revwalk(repo_.get());
 }
 
-// --- branches -------------------------------------------------------------
+// --- 分支（branches）-------------------------------------------------------------
 
 branch repo::lookup_branch(const std::string& name, git_branch_t type) {
     check();
@@ -902,7 +902,7 @@ branch_iterator repo::new_branch_iterator(git_branch_t type) {
     return branch_iterator(repo_.get(), type);
 }
 
-// --- tags -----------------------------------------------------------------
+// --- 标签（tags）-----------------------------------------------------------------
 
 tag repo::lookup_tag(const oid& tag_id) {
     check();
@@ -911,7 +911,7 @@ tag repo::lookup_tag(const oid& tag_id) {
     return tag(t);
 }
 
-// --- diff -----------------------------------------------------------------
+// --- 差异（diff）-----------------------------------------------------------------
 
 diff repo::diff_trees(const tree& old_tree, const tree& new_tree) {
     check();
@@ -943,7 +943,7 @@ diff repo::diff_index_to_workdir() {
 }
 
 // ============================================================================
-// Free functions
+// 自由函数（Free functions）
 // ============================================================================
 
 bool is_git_repo(const std::filesystem::path& dir) {
@@ -977,4 +977,4 @@ repo init_repo(const std::filesystem::path& repo_path,
     return repo(r);
 }
 
-} // namespace gitpp
+} // namespace gitpp（gitpp 命名空间）

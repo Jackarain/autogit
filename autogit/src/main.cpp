@@ -78,16 +78,17 @@ std::string global_git_email;
 
 std::string global_git_remote_url;
 
-// Git LFS configuration.
+// Git LFS 配置。
 bool global_enable_lfs = false;
 std::vector<std::string> global_lfs_patterns;
+std::string global_lfs_push_url;
 
 int certificate_check_cb(git_cert *cert,
 	int valid,
 	const char *host,
 	void *payload)
 {
-    return 1; // Always accept the certificate
+    return 1; // 始终接受证书
 }
 
 const char* get_home_dir(void)
@@ -113,7 +114,7 @@ int cred_acquire_cb(git_cred** cred,
 			"\\.ssh\\";
 #else
 			"/.ssh/";
-#endif // WIN32
+#endif // WIN32（Windows 平台）
 
 		const char* private_key = nullptr;
 		const char* public_key = nullptr;
@@ -169,15 +170,15 @@ int gitwork(gitpp::repo& repo)
 	gitpp::index index = repo.get_index();
 	gitpp::status_list status = repo.new_status_list();
 
-	// Load LFS patterns once if LFS is enabled.
+	// 如果启用了 LFS，则加载 LFS 模式。
 	std::vector<std::string> lfs_patterns;
 	std::string git_dir = repo.path();
 	if (global_enable_lfs)
 	{
-		// Load patterns from .gitattributes.
+		// 从 .gitattributes 加载模式。
 		lfs_patterns = gitpp::lfs::load_lfs_patterns(
 			git_dir, repo.native());
-		// Merge in any patterns specified via --lfs_pattern on command line.
+		// 合并通过 --lfs_pattern 命令行参数指定的任何模式。
 		for (const auto& pat : global_lfs_patterns)
 		{
 			if (std::find(lfs_patterns.begin(),
@@ -193,8 +194,8 @@ int gitwork(gitpp::repo& repo)
 		auto handle = index.native();
 		int ret = 0;
 
-		// Determine the actual path to stage.
-		// For LFS-tracked files, we stage a pointer file instead.
+		// 确定实际要暂存的路径。
+		// 对于 LFS 跟踪的文件，我们改为暂存指针文件。
 		std::string stage_path = old_file_path;
 
 		if (global_enable_lfs &&
@@ -208,12 +209,12 @@ int gitwork(gitpp::repo& repo)
 
 			if (is_lfs)
 			{
-				// Resolve the full path of the file.
+				// 解析文件的完整路径。
 				auto workdir = repo.workdir();
 				auto full_path = std::filesystem::path(workdir) /
 					std::filesystem::path(old_file_path);
 
-				// Check if the file is already an LFS pointer.
+				// 检查文件是否已经是一个 LFS 指针文件。
 				bool already_pointer = false;
 				if (std::filesystem::exists(full_path))
 					already_pointer = gitpp::lfs::pointer::is_pointer_file(
@@ -221,12 +222,12 @@ int gitwork(gitpp::repo& repo)
 
 				if (!already_pointer)
 				{
-					// Create LFS pointer and store object.
+					// 创建 LFS 指针并存储对象。
 					auto ptr = gitpp::lfs::pointer::create_from_file(
 						full_path, git_dir);
 					if (ptr.has_value())
 					{
-						// Write the pointer file back to the working dir.
+						// 将指针文件写回工作目录。
 						if (gitpp::lfs::write_pointer_file(
 								full_path, *ptr))
 						{
@@ -394,14 +395,27 @@ int gitwork(gitpp::repo& repo)
 		return EXIT_FAILURE;
 	}
 
-	// If LFS is enabled, attempt to push LFS objects before the
-	// regular Git push.  We try the external `git lfs push` command
-	// first (most reliable), falling back to a built-in batch upload.
+	// 如果启用了 LFS，则在常规 Git 推送之前尝试推送 LFS 对象。
+	// 我们首先尝试外部的 `git lfs push` 命令（最可靠），
+	// 如果失败则回退到内置的批量上传。
 	if (global_enable_lfs)
 	{
-		// Try external git-lfs first.
-		int lfs_ret = std::system(
-			("git -C \"" + repo.workdir() + "\" lfs push --all origin 2>/dev/null").c_str());
+		// 构建 git-lfs 推送命令。
+		// 如果指定了自定义的 LFS 推送 URL，则设置 GIT_LFS_URL 或
+		// 通过 git config 临时配置 LFS 远程 URL。
+		std::string lfs_cmd = "git -C \"" + repo.workdir() + "\" lfs push --all origin";
+		if (!global_lfs_push_url.empty())
+		{
+			// 使用自定义的 LFS 推送 URL 替代默认值。
+			lfs_cmd = "git -C \"" + repo.workdir()
+				+ "\" config lfs.url \"" + global_lfs_push_url
+				+ "\" && git -C \"" + repo.workdir()
+				+ "\" lfs push --all origin";
+		}
+		lfs_cmd += " 2>/dev/null";
+
+		// 先尝试外部的 git-lfs。
+		int lfs_ret = std::system(lfs_cmd.c_str());
 
 		if (lfs_ret == 0)
 		{
@@ -409,8 +423,8 @@ int gitwork(gitpp::repo& repo)
 		}
 		else
 		{
-			// External git-lfs not available or failed; log a warning.
-			// The built-in LFS batch upload can be extended here.
+			// 外部的 git-lfs 不可用或推送失败；记录警告。
+			// 内置的 LFS 批量上传可以在这里扩展。
 			LOG_DBG << "git-lfs not available or push failed (ret="
 				<< lfs_ret << "), skipping LFS object upload. "
 				<< "Install git-lfs(1) for automatic LFS push support.";
@@ -571,7 +585,7 @@ net::awaitable<int> co_main(int argc, char** argv)
 	// 解析命令行.
 	po::options_description desc("Options");
 
-	// General options
+	// 通用选项
 	desc.add_options()
 		("help,h", "Display help information.")
 		("config,c", po::value<std::string>(&config)->default_value("autogit.conf"), "Path to the configuration file.")
@@ -579,7 +593,7 @@ net::awaitable<int> co_main(int argc, char** argv)
 		("log_dir", po::value<std::string>(&log_dir)->value_name("path"), "Specify directory for log files.")
 		("check_interval", po::value<int>(&check_interval)->default_value(60), "Time interval (in seconds) between Git repository checks.");
 
-	// Git specific options
+	// Git 特定选项
 	desc.add_options()
 		("repository", po::value<std::string>(&git_dir)->value_name("repository"), "Specify the Git repository location.")
 		("commit_msg", po::value<std::string>(&global_commit_message)->default_value(""), "Set a custom commit message, if empty will auto-generate.")
@@ -588,21 +602,22 @@ net::awaitable<int> co_main(int argc, char** argv)
 		("git_email", po::value<std::string>(&global_git_email)->default_value("autogit@localhost"), "Email to be associated with Git commit authorship.")
 		("git_remote_url", po::value<std::string>(&global_git_remote_url)->default_value(""), "URL for the remote Git repository.");
 
-	// HTTP authentication options
+	// HTTP 认证选项
 	desc.add_options()
 		("http_username", po::value<std::string>(&global_http_username)->default_value(""), "Username for HTTP authentication.")
 		("http_password", po::value<std::string>(&global_http_password)->default_value(""), "Password for HTTP authentication.");
 
-	// SSH authentication options
+	// SSH 认证选项
 	desc.add_options()
 		("ssh_pubkey", po::value<std::string>(&global_ssh_pubkey)->default_value(""), "Path to the SSH public key for authentication.")
 		("ssh_privkey", po::value<std::string>(&global_ssh_privkey)->default_value(""), "Path to the SSH private key for authentication.")
 		("ssh_passphrase", po::value<std::string>(&global_ssh_passphrase)->default_value(""), "Passphrase for the SSH key.");
 
-	// Git LFS options
+	// Git LFS 选项
 	desc.add_options()
 		("lfs", po::value<bool>(&global_enable_lfs)->default_value(false), "Enable Git LFS support. When enabled, files matching LFS patterns in .gitattributes will be stored as LFS pointers.")
-		("lfs_pattern", po::value<std::vector<std::string>>(&global_lfs_patterns)->multitoken(), "Additional LFS file patterns (glob) to track, e.g. --lfs_pattern '*.psd' --lfs_pattern '*.zip'. These supplement patterns from .gitattributes.");
+		("lfs_pattern", po::value<std::vector<std::string>>(&global_lfs_patterns)->multitoken(), "Additional LFS file patterns (glob) to track, e.g. --lfs_pattern '*.psd' --lfs_pattern '*.zip'. These supplement patterns from .gitattributes.")
+		("lfs_push_url", po::value<std::string>(&global_lfs_push_url)->default_value(""), "LFS remote URL for pushing objects. Overrides the url setting in .lfsconfig. If empty, the repository remote origin URL is used.");
 
 	po::variables_map vm;
 	po::store(
@@ -649,7 +664,7 @@ net::awaitable<int> co_main(int argc, char** argv)
 
 #if defined(SIGQUIT)
 	terminator_signal.add(SIGQUIT);
-#endif // defined(SIGQUIT)
+#endif // defined(SIGQUIT)（定义了 SIGQUIT）
 
 	LOG_DBG << "Running...";
 
