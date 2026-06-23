@@ -1108,42 +1108,6 @@ std::vector<lfs_object> collect_new_lfs_objects(
 // ============================================================================
 // LFS HTTP 推送 — 使用系统 curl 命令行工具
 // ============================================================================
-// 已推送 OID 追踪 — 持久化记录以避免重复推送
-// ============================================================================
-
-// 从追踪文件中加载已推送的 OID 集合。
-static std::unordered_set<std::string> load_pushed_oids(
-    const std::filesystem::path& gitdir)
-{
-    std::unordered_set<std::string> pushed;
-    auto pushed_file = gitdir / k_lfs_pushed_file;
-    std::error_code ec;
-    if (!std::filesystem::exists(pushed_file, ec))
-        return pushed;
-
-    std::ifstream f(pushed_file);
-    std::string line;
-    while (std::getline(f, line)) {
-        if (line.size() == 64) {
-            pushed.insert(std::move(line));
-        }
-    }
-    return pushed;
-}
-
-// 将一个 OID 追加记录到追踪文件中（表示已成功推送）。
-static void record_pushed_oid(
-    const std::filesystem::path& gitdir,
-    const std::string& oid)
-{
-    auto pushed_file = gitdir / k_lfs_pushed_file;
-    std::ofstream f(pushed_file, std::ios::app);
-    if (f) {
-        f << oid << '\n';
-    }
-}
-
-// ============================================================================
 
 int push_lfs_objects_http(
     const std::string& lfs_push_url,
@@ -1153,25 +1117,10 @@ int push_lfs_objects_http(
     if (lfs_push_url.empty())
         return -1;
 
-    // 加载已推送的 OID，避免重复推送。
-    auto pushed_oids = load_pushed_oids(gitdir);
-
-    // 收集所有本地 LFS 对象，并过滤掉已推送的。
-    auto all_objects = collect_new_lfs_objects(gitdir);
-
-    std::vector<lfs_object> objects;
-    objects.reserve(all_objects.size());
-    int skipped_count = 0;
-    for (auto& obj : all_objects) {
-        if (pushed_oids.count(obj.oid)) {
-            ++skipped_count;
-        } else {
-            objects.push_back(std::move(obj));
-        }
-    }
-
+    // 收集所有本地 LFS 对象。
+    auto objects = collect_new_lfs_objects(gitdir);
     if (objects.empty()) {
-        // 没有要推送的新内容。
+        // 没有要推送的内容。
         return 0;
     }
 
@@ -1297,13 +1246,10 @@ int push_lfs_objects_http(
                     "-o /dev/null 2>/dev/null";
 
                 auto upload_ret = std::system(upload_cmd.c_str());
-                if (upload_ret == 0) {
+                if (upload_ret == 0)
                     ++upload_count;
-                    // 记录已推送的 OID，下次跳过。
-                    record_pushed_oid(gitdir, oid);
-                } else {
+                else
                     ++error_count;
-                }
             } else {
                 ++error_count;
             }
