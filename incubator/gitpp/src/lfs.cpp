@@ -1234,10 +1234,10 @@ int push_lfs_objects_http(
             if (std::filesystem::exists(obj_path, ec)) {
                 // 使用 curl 上传。
                 std::string upload_cmd =
-                    "curl -s -X PUT \"" + upload_url + "\" "
+                    "curl -sf -X PUT \"" + upload_url + "\" "
                     "-H \"Content-Type: application/octet-stream\" "
                     "--data-binary @\"" + obj_path.string() + "\" "
-                    "-o /dev/null -w \"%{http_code}\" 2>/dev/null";
+                    "-o /dev/null 2>/dev/null";
 
                 auto upload_ret = std::system(upload_cmd.c_str());
                 if (upload_ret == 0)
