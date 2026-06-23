@@ -91,6 +91,7 @@ if (CCACHE_PROGRAM AND ENABLE_USE_CCACHE)
 endif()
 
 set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_EXTENSIONS ON)
 
 ################################################################################
 
