@@ -15,7 +15,9 @@
 #include <sstream>
 #include <vector>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#  include <process.h>
+#else
 #  include <unistd.h>
 #endif
 
@@ -731,7 +733,11 @@ static std::filesystem::path make_tmp_path(
     std::filesystem::create_directories(tmp_dir, ec);
 
     // 使用时间戳和 PID 生成唯一名称。
+#ifdef _WIN32
+    auto pid = static_cast<long>(::_getpid());
+#else
     auto pid = static_cast<long>(::getpid());
+#endif
     auto now = std::chrono::steady_clock::now().time_since_epoch().count();
     auto name = "lfs-tmp-" + std::to_string(now) + "-" + std::to_string(pid);
 
