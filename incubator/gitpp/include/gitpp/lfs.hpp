@@ -43,6 +43,10 @@ constexpr std::string_view k_lfs_objects_dir = "lfs/objects";
 
 constexpr std::string_view k_lfs_tmp_dir = "lfs/tmp";
 
+// 已推送 LFS OID 的追踪文件路径（相对于 gitdir）。
+// 每行一个 OID，用于避免重复推送同一对象。
+constexpr std::string_view k_lfs_pushed_file = "lfs/pushed-objects.txt";
+
 // ---------------------------------------------------------------------------
 // pointer  --  Git LFS 指针文件
 //
