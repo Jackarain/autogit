@@ -5,8 +5,8 @@
 //   o  LFS 指针文件的创建和解析（SHA-256）
 //   o  LFS 对象存储于 .git/lfs/objects/
 //   o  从 .gitattributes 进行 LFS 模式匹配（filter=lfs）
-//   o  Clean/smudge 过滤器集成
-//   o  预推送的批量对象上传
+//   o  基于 git_filter_register 的 Clean/smudge 过滤器
+//   o  通过 LFS 批量 API 的 HTTP 预推送对象上传
 // ============================================================================
 
 #pragma once
@@ -33,13 +33,15 @@ namespace gitpp {
 namespace lfs {
 
 // ---------------------------------------------------------------------------
-// 常量（Constants）
+// 常量
 // ---------------------------------------------------------------------------
 
 constexpr std::string_view k_pointer_version =
     "https://git-lfs.github.com/spec/v1";
 
 constexpr std::string_view k_lfs_objects_dir = "lfs/objects";
+
+constexpr std::string_view k_lfs_tmp_dir = "lfs/tmp";
 
 // ---------------------------------------------------------------------------
 // pointer  --  Git LFS 指针文件
@@ -55,10 +57,7 @@ struct pointer {
     std::string oid;       // SHA-256 十六进制字符串（64 字符）
     std::int64_t size = 0; // 原始文件大小（字节）
 
-    // 默认构造一个零指针。
     pointer() noexcept = default;
-
-    // 使用显式的 OID 和大小构造。
     pointer(std::string oid_, std::int64_t size_)
         : oid(std::move(oid_))
         , size(size_)
@@ -68,24 +67,14 @@ struct pointer {
         return oid.size() == 64 && size >= 0;
     }
 
-    // 序列化为三行字符串。
     GITPP_NODISCARD std::string encode() const;
-
-    // 从三行字符串解析指针。
     GITPP_NODISCARD static std::optional<pointer> decode(
         std::string_view text) noexcept;
-
-    // 从磁盘上的文件内容创建指针。
-    // 读取文件，计算 SHA-256，将对象写入 LFS 存储，然后返回指针。
     GITPP_NODISCARD static std::optional<pointer> create_from_file(
         const std::filesystem::path& file_path,
         const std::filesystem::path& gitdir);
-
-    // 检查缓冲区是否看起来像 LFS 指针文件。
     GITPP_NODISCARD static bool is_pointer(
         std::string_view text) noexcept;
-
-    // 检查磁盘上的文件是否为 LFS 指针文件。
     GITPP_NODISCARD static bool is_pointer_file(
         const std::filesystem::path& path);
 };
@@ -98,19 +87,18 @@ class object_store {
 public:
     explicit object_store(std::filesystem::path gitdir);
 
-    // 将文件内容存储到 LFS 对象存储中。
-    // 如果成功则返回指针。
     GITPP_NODISCARD std::optional<pointer> store(
         const std::filesystem::path& file_path);
 
-    // 通过 OID 获取本地 LFS 对象的路径。
+    // 将已缓冲的数据写入 LFS 对象存储（由 filter stream 使用）。
+    // `tmp_path` 是包含原始内容的临时文件的路径。
+    // 该函数计算文件的 SHA-256，将其移动到正确的路径，并返回指针。
+    GITPP_NODISCARD std::optional<pointer> store_temp(
+        const std::filesystem::path& tmp_path);
+
     GITPP_NODISCARD std::filesystem::path object_path(
         const std::string& oid) const;
-
-    // 检查对象是否已存在于本地。
     GITPP_NODISCARD bool exists(const std::string& oid) const;
-
-    // 返回 LFS 对象存储的根目录。
     GITPP_NODISCARD const std::filesystem::path& root() const noexcept {
         return objects_root_;
     }
@@ -120,67 +108,100 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// 属性匹配（attribute matching） --  .gitattributes LFS 模式支持
+// 属性匹配
 // ---------------------------------------------------------------------------
 
-// 从仓库的 `.gitattributes`（工作树根目录和 HEAD 中的版本）
-// 加载所有标记为 `filter=lfs` 的模式。
-// `gitdir` 是 `.git` 的路径。
 GITPP_NODISCARD std::vector<std::string> load_lfs_patterns(
     const std::filesystem::path& gitdir,
     git_repository* repo);
 
-// 检查给定的相对路径是否匹配任何 LFS 模式。
-// 模式是 .gitattributes 中使用的简单 glob。
 GITPP_NODISCARD bool path_matches_lfs(
     std::string_view path,
     const std::vector<std::string>& patterns);
 
-// 便捷函数：先加载模式再进行匹配。
 GITPP_NODISCARD bool is_lfs_tracked(
     std::string_view path,
     git_repository* repo,
     const std::filesystem::path& gitdir);
 
 // ---------------------------------------------------------------------------
-// 指针文件 I/O 辅助函数
+// 指针文件 I/O
 // ---------------------------------------------------------------------------
 
-// 将指针文件写入磁盘（覆盖原始大文件）。
-// 成功时返回 true。
 bool write_pointer_file(
     const std::filesystem::path& dest,
     const pointer& ptr);
 
-// 从磁盘读取指针文件。
 GITPP_NODISCARD std::optional<pointer> read_pointer_file(
     const std::filesystem::path& path);
 
 // ---------------------------------------------------------------------------
-// 批量上传支持（预推送）
+// 基于 git_filter_register 的 LFS 过滤器
+//
+// 使用 libgit2 的 git_filter_register 注册一个自定义的 "lfs" 过滤器。
+// 当文件通过 git_index_add_bypath 暂存（clean）时，该过滤器会：
+//   1. 计算文件的 SHA-256 哈希
+//   2. 将原始内容存储到 .git/lfs/objects/ 中
+//   3. 将指针文件写入索引（而非原始大文件）
+//
+// 检出（smudge）时，过滤器会将指针文件还原为原始内容。
+//
+// 使用前必须通过 register_lfs_filter() 注册过滤器，
+// 并在完成后调用 unregister_lfs_filter() 注销。
 // ---------------------------------------------------------------------------
 
+// 将 LFS 模式写入仓库的 `.git/info/attributes`，
+// 以便 libgit2 能够在暂存/检出时自动为匹配的文件应用 `filter=lfs`。
+// 现有的 attributes 内容会被保留（去重后追加）。
+// 成功时返回 0，失败时返回 -1。
+int write_lfs_attributes(
+    const std::filesystem::path& gitdir,
+    const std::vector<std::string>& patterns);
+
+// 注册 LFS filter。`gitdir` 是 `.git` 目录的路径。
+// 调用此函数前，应先将 LFS 模式写入 `.git/info/attributes`。
+// 成功时返回 0，失败时返回负值。
+// 该过滤器注册为 "lfs" 名称，优先级为 GIT_FILTER_DRIVER_PRIORITY。
+GITPP_NODISCARD int register_lfs_filter(
+    const std::filesystem::path& gitdir);
+
+// 注销之前注册的 LFS filter。
+void unregister_lfs_filter();
+
+// ---------------------------------------------------------------------------
+// LFS HTTP 批量推送
+//
+// 在调用 git_remote_push 之前，通过 LFS 批量 API 将本地 LFS 对象
+// 推送到由 `lfs_push_url` 指定的 LFS 服务器。
+// ---------------------------------------------------------------------------
+
+// 状态对象（用于 LFS 对象收集和推送）。
 struct lfs_object {
     std::string oid;
-    std::int64_t size;
+    std::int64_t size = 0;
     bool exists = false;
 };
 
-// 收集一组提交中引用的 LFS 对象。
-// 从给定的修订遍历器开始遍历，收集 LFS 指针数据对象。
-GITPP_NODISCARD std::vector<lfs_object> collect_lfs_objects(
-    git_repository* repo,
-    const std::vector<git_oid>& commit_ids);
+// 要推送的 LFS 对象的上传结果。
+struct lfs_push_result {
+    std::string oid;
+    bool success = false;
+    std::string error_msg;
+};
 
-// 执行 LFS 对象到远程 LFS 服务器的批量上传。
-// `remote_url` 是 Git 远程 URL（不含认证信息）。
+// 收集自从指定引用（如 "refs/heads/master"）的最近提交之后
+// 所有新引用的 LFS 对象。
+GITPP_NODISCARD std::vector<lfs_object> collect_new_lfs_objects(
+    const std::filesystem::path& gitdir);
+
+// 通过 LFS 批量 API 将对象推送到远程服务器。
+// `lfs_push_url` 是 LFS 服务器的 URL（类似 https://lfs-server.com）。
 // 成功时返回 0，失败时返回 -1。
-int push_lfs_objects(
-    git_repository* repo,
-    const std::string& remote_url,
-    const std::vector<lfs_object>& objects,
-    const std::string& username = {},
-    const std::string& password = {});
+// 如果 curl（命令行工具）可用，则使用它；否则返回 -1 并设置错误信息。
+int push_lfs_objects_http(
+    const std::string& lfs_push_url,
+    const std::filesystem::path& gitdir,
+    const std::string& auth_header = {});
 
-} // namespace lfs（LFS 命名空间）
-} // namespace gitpp（gitpp 命名空间）
+} // namespace lfs
+} // namespace gitpp

@@ -5,14 +5,13 @@
 #include "gitpp/lfs.hpp"
 
 #include <git2.h>
+#include <git2/sys/filter.h>
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
-#include <functional>
-#include <iomanip>
-#include <numeric>
 #include <sstream>
 #include <vector>
 
@@ -378,6 +377,38 @@ std::optional<pointer> object_store::store(
     return pointer(oid_hex, sz);
 }
 
+std::optional<pointer> object_store::store_temp(
+    const std::filesystem::path& tmp_path)
+{
+    // 计算临时文件的 SHA-256。
+    auto oid_hex = file_sha256(tmp_path);
+    if (oid_hex.empty())
+        return std::nullopt;
+
+    auto sz = get_file_size(tmp_path);
+    if (sz < 0)
+        return std::nullopt;
+
+    auto dest = object_path(oid_hex);
+
+    // 创建父目录。
+    std::error_code ec;
+    std::filesystem::create_directories(dest.parent_path(), ec);
+
+    // 如果目标已存在，则直接删除临时文件并返回。
+    if (std::filesystem::exists(dest, ec)) {
+        std::filesystem::remove(tmp_path, ec);
+        return pointer(oid_hex, sz);
+    }
+
+    // 将临时文件移动到 LFS 对象存储。
+    std::filesystem::rename(tmp_path, dest, ec);
+    if (ec)
+        return std::nullopt;
+
+    return pointer(oid_hex, sz);
+}
+
 std::filesystem::path object_store::object_path(
     const std::string& oid) const
 {
@@ -503,6 +534,7 @@ static bool glob_match(std::string_view pattern,
                 if (pi == pe)
                     return true;
                 // 尝试在每个位置上匹配模式的其余部分。
+                while (si != se) {
                     if (glob_match(std::string_view(&*pi, pe - pi),
                                    std::string_view(&*si, se - si)))
                         return true;
@@ -674,117 +706,558 @@ std::optional<pointer> read_pointer_file(
 }
 
 // ============================================================================
-// 批量上传支持（Batch-upload support）
+// LFS 基于 git_filter_register 的过滤器实现
 // ============================================================================
 
-std::vector<lfs_object> collect_lfs_objects(
-    git_repository* repo,
-    const std::vector<git_oid>& commit_ids)
+namespace {
+
+// 过滤器全局数据（git_filter_register 是全局的）。
+struct filter_global_data {
+    std::string gitdir;
+};
+
+filter_global_data* g_filter_data = nullptr;
+
+// ---------------------------------------------------------------------------
+// 自定义 git_writestream —— 处理 LFS clean/smudge 的流式转换
+// ---------------------------------------------------------------------------
+
+// 在 .git/lfs/tmp/ 下生成唯一的临时文件名。
+static std::filesystem::path make_tmp_path(
+    const std::filesystem::path& gitdir)
+{
+    auto tmp_dir = gitdir / k_lfs_tmp_dir;
+    std::error_code ec;
+    std::filesystem::create_directories(tmp_dir, ec);
+
+    // 使用时间戳和 PID 生成唯一名称。
+    auto pid = static_cast<long>(::getpid());
+    auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+    auto name = "lfs-tmp-" + std::to_string(now) + "-" + std::to_string(pid);
+
+    return tmp_dir / name;
+}
+
+struct lfs_writestream {
+    git_writestream base;
+
+    // 下游（下一个过滤器或最终输出）。
+    git_writestream* next = nullptr;
+
+    // 方向：true = clean（工作树 → ODB），false = smudge（ODB → 工作树）。
+    bool clean_mode = true;
+
+    // --- clean 模式的状态 ---
+    sha256_ctx hash_ctx;
+    std::filesystem::path tmp_path;   // 临时文件路径
+    std::ofstream tmp_file;           // 临时文件流
+    std::int64_t file_size = 0;       // 原始文件大小
+    std::string gitdir;               // .git 目录路径
+
+    // --- smudge 模式的状态 ---
+    std::string pointer_data;         // 指针文件内容缓冲区
+};
+
+// clean 模式：write 回调 — 哈希数据并写入临时文件。
+static int lfs_stream_write_clean(
+    lfs_writestream* stream,
+    const char* data, size_t len)
+{
+    // 更新 SHA-256 哈希。
+    sha256_update(&stream->hash_ctx,
+        reinterpret_cast<const unsigned char*>(data), len);
+
+    // 写入临时文件。
+    if (stream->tmp_file.is_open()) {
+        stream->tmp_file.write(data, static_cast<std::streamsize>(len));
+        if (!stream->tmp_file.good())
+            return -1;
+    }
+
+    stream->file_size += static_cast<std::int64_t>(len);
+    return 0;
+}
+
+// smudge 模式：write 回调 — 收集指针文件内容。
+static int lfs_stream_write_smudge(
+    lfs_writestream* stream,
+    const char* data, size_t len)
+{
+    stream->pointer_data.append(data, len);
+    return 0;
+}
+
+// write 回调分发。
+static int lfs_stream_write(
+    git_writestream* base,
+    const char* data, size_t len)
+{
+    auto* stream = reinterpret_cast<lfs_writestream*>(base);
+    if (stream->clean_mode)
+        return lfs_stream_write_clean(stream, data, len);
+    else
+        return lfs_stream_write_smudge(stream, data, len);
+}
+
+// clean 模式：close 回调 — 完成哈希，存储对象，写入指针到下游。
+static int lfs_stream_close_clean(lfs_writestream* stream)
+{
+    // 完成 SHA-256 哈希。
+    unsigned char hash[32];
+    sha256_final(&stream->hash_ctx, hash);
+    auto oid_hex = sha256_hex(hash);
+
+    // 关闭临时文件。
+    if (stream->tmp_file.is_open())
+        stream->tmp_file.close();
+
+    // 将临时文件移动到 LFS 对象存储。
+    object_store store(stream->gitdir);
+    auto ptr = store.store_temp(stream->tmp_path);
+    if (!ptr) {
+        // 存储失败，清理临时文件。
+        std::error_code ec;
+        std::filesystem::remove(stream->tmp_path, ec);
+        return -1;
+    }
+
+    // 将指针文件内容写入下游（最终进入索引）。
+    auto pointer_text = ptr->encode();
+    int ret = stream->next->write(stream->next,
+        pointer_text.data(), pointer_text.size());
+    if (ret != 0)
+        return ret;
+
+    // 关闭下游流。
+    return stream->next->close(stream->next);
+}
+
+// smudge 模式：close 回调 — 解析指针，读取实际内容并写入下游。
+static int lfs_stream_close_smudge(lfs_writestream* stream)
+{
+    // 尝试解析指针文件。
+    auto ptr = pointer::decode(stream->pointer_data);
+    if (!ptr) {
+        // 不是有效的指针文件 — 直接透传原始内容。
+        int ret = stream->next->write(stream->next,
+            stream->pointer_data.data(),
+            stream->pointer_data.size());
+        if (ret != 0)
+            return ret;
+        return stream->next->close(stream->next);
+    }
+
+    // 从 LFS 对象存储读取实际内容。
+    object_store store(stream->gitdir);
+    auto obj_path = store.object_path(ptr->oid);
+
+    std::ifstream obj_file(obj_path, std::ios::binary);
+    if (!obj_file) {
+        // LFS 对象不在本地 — 回退：透传指针文件内容。
+        int ret = stream->next->write(stream->next,
+            stream->pointer_data.data(),
+            stream->pointer_data.size());
+        if (ret != 0)
+            return ret;
+        return stream->next->close(stream->next);
+    }
+
+    // 分块读取并写入下游。
+    char buf[65536];
+    while (obj_file.read(buf, sizeof(buf)) || obj_file.gcount() > 0) {
+        auto count = static_cast<size_t>(obj_file.gcount());
+        int ret = stream->next->write(stream->next, buf, count);
+        if (ret != 0)
+            return ret;
+    }
+
+    return stream->next->close(stream->next);
+}
+
+// close 回调分发。
+static int lfs_stream_close(git_writestream* base)
+{
+    auto* stream = reinterpret_cast<lfs_writestream*>(base);
+    if (stream->clean_mode)
+        return lfs_stream_close_clean(stream);
+    else
+        return lfs_stream_close_smudge(stream);
+}
+
+// free 回调。
+static void lfs_stream_free(git_writestream* base)
+{
+    auto* stream = reinterpret_cast<lfs_writestream*>(base);
+    delete stream;
+}
+
+// ---------------------------------------------------------------------------
+// 过滤器回调
+// ---------------------------------------------------------------------------
+
+// check 回调：决定是否为给定文件调用过滤器。
+static int lfs_filter_check(
+    git_filter* /*self*/,
+    void** /*payload*/,
+    const git_filter_source* /*src*/,
+    const char** /*attr_values*/)
+{
+    // 对于 clean 和 smudge，如果 filter=lfs 属性已设置，
+    // 我们始终接受。clean 模式下，stream 会将大文件转换为指针；
+    // smudge 模式下，如果内容不是指针文件，stream 会透传。
+    return 0;
+}
+
+// stream 回调：创建自定义的 git_writestream。
+static int lfs_filter_stream(
+    git_writestream** out,
+    git_filter* /*self*/,
+    void** /*payload*/,
+    const git_filter_source* src,
+    git_writestream* next)
+{
+    if (!g_filter_data) {
+        // 没有全局数据，无法运行。
+        return GIT_PASSTHROUGH;
+    }
+
+    auto mode = git_filter_source_mode(src);
+    auto* stream = new lfs_writestream();
+
+    stream->base.write = lfs_stream_write;
+    stream->base.close = lfs_stream_close;
+    stream->base.free = lfs_stream_free;
+    stream->next = next;
+    stream->gitdir = g_filter_data->gitdir;
+
+    if (mode == GIT_FILTER_CLEAN) {
+        stream->clean_mode = true;
+
+        // 初始化哈希上下文。
+        sha256_init(&stream->hash_ctx);
+        stream->file_size = 0;
+
+        // 创建临时文件路径。
+        stream->tmp_path = make_tmp_path(g_filter_data->gitdir);
+        stream->tmp_file.open(stream->tmp_path, std::ios::binary);
+        if (!stream->tmp_file.is_open()) {
+            delete stream;
+            return -1;
+        }
+    } else {
+        stream->clean_mode = false;
+        stream->pointer_data.clear();
+    }
+
+    *out = &stream->base;
+    return 0;
+}
+
+// cleanup 回调。
+static void lfs_filter_cleanup(
+    git_filter* /*self*/,
+    void* /*payload*/)
+{
+    // 每个流的清理在 free 回调中处理。
+}
+
+// 全局 filter 实例。
+static git_filter g_lfs_filter = {
+    GIT_FILTER_VERSION,
+    "filter=lfs",          // attributes：当 filter=lfs 时触发
+    nullptr,                // initialize
+    nullptr,                // shutdown
+    lfs_filter_check,       // check
+    nullptr,                // apply (deprecated)
+    lfs_filter_stream,      // stream
+    lfs_filter_cleanup      // cleanup
+};
+
+} // 匿名命名空间
+
+int write_lfs_attributes(
+    const std::filesystem::path& gitdir,
+    const std::vector<std::string>& patterns)
+{
+    if (patterns.empty())
+        return 0;
+
+    auto info_attr_path = gitdir / "info" / "attributes";
+
+    // 读取现有的 attributes 内容。
+    std::vector<std::string> existing_lines;
+    {
+        std::ifstream existing(info_attr_path);
+        std::string line;
+        while (std::getline(existing, line)) {
+            // 去除行尾的 \r。
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            existing_lines.push_back(std::move(line));
+        }
+    }
+
+    // 收集现有的 LFS filter 模式（去重）。
+    std::unordered_set<std::string> existing_patterns;
+    for (const auto& line : existing_lines) {
+        // 查找 " filter=lfs" 或 "filter=lfs"。
+        auto pos = line.find("filter=lfs");
+        if (pos != std::string::npos) {
+            // 提取模式部分（第一个空格前的部分）。
+            auto pat_end = line.find_first_of(" \t");
+            if (pat_end != std::string::npos) {
+                existing_patterns.insert(line.substr(0, pat_end));
+            }
+        }
+    }
+
+    // 写入文件。
+    std::ofstream out(info_attr_path, std::ios::app);
+    if (!out)
+        return -1;
+
+    for (const auto& pat : patterns) {
+        if (existing_patterns.find(pat) == existing_patterns.end()) {
+            out << pat << " filter=lfs\n";
+            existing_patterns.insert(pat);
+        }
+    }
+
+    return out.good() ? 0 : -1;
+}
+
+int register_lfs_filter(const std::filesystem::path& gitdir)
+{
+    if (g_filter_data) {
+        // 已注册。
+        return 0;
+    }
+
+    // 分配全局数据。
+    g_filter_data = new filter_global_data();
+    g_filter_data->gitdir = gitdir.string();
+
+    // 注册过滤器。
+    int ret = git_filter_register(
+        "lfs", &g_lfs_filter, GIT_FILTER_DRIVER_PRIORITY);
+    if (ret < 0) {
+        delete g_filter_data;
+        g_filter_data = nullptr;
+    }
+
+    return ret;
+}
+
+void unregister_lfs_filter()
+{
+    if (g_filter_data) {
+        git_filter_unregister("lfs");
+        delete g_filter_data;
+        g_filter_data = nullptr;
+    }
+}
+
+// ============================================================================
+// 收集新的 LFS 对象（用于推送）
+// ============================================================================
+
+std::vector<lfs_object> collect_new_lfs_objects(
+    const std::filesystem::path& gitdir)
 {
     std::vector<lfs_object> objects;
-    std::unordered_set<std::string> seen_oids;
 
-    for (const auto& commit_oid : commit_ids) {
-        git_commit* commit = nullptr;
-        if (git_commit_lookup(&commit, repo, &commit_oid) != 0)
-            continue;
+    // 扫描 .git/lfs/objects/ 目录以查找所有本地对象。
+    auto objects_root = gitdir / k_lfs_objects_dir;
 
-        git_tree* tree = nullptr;
-        if (git_commit_tree(&tree, commit) != 0) {
-            git_commit_free(commit);
+    std::error_code ec;
+    if (!std::filesystem::exists(objects_root, ec))
+        return objects;
+
+    // 遍历 xx/xx/oid 层级结构。
+    for (auto& d1 : std::filesystem::directory_iterator(objects_root, ec)) {
+        if (!d1.is_directory())
             continue;
+        for (auto& d2 : std::filesystem::directory_iterator(d1.path(), ec)) {
+            if (!d2.is_directory())
+                continue;
+            for (auto& file : std::filesystem::directory_iterator(d2.path(), ec)) {
+                if (!file.is_regular_file())
+                    continue;
+                auto oid = file.path().filename().string();
+                if (oid.size() != 64)
+                    continue;
+
+                lfs_object obj;
+                obj.oid = oid;
+                obj.size = static_cast<std::int64_t>(file.file_size(ec));
+                obj.exists = true;
+                objects.push_back(std::move(obj));
+            }
         }
-
-        // 递归遍历树以查找 LFS 指针数据对象。
-        std::function<void(git_tree*)> walk_tree =
-            [&](git_tree* t) {
-                size_t count = git_tree_entrycount(t);
-                for (size_t i = 0; i < count; ++i) {
-                    auto* entry = git_tree_entry_byindex(t, i);
-                    if (!entry) continue;
-
-                    auto entry_type = git_tree_entry_type(entry);
-                    if (entry_type == GIT_OBJECT_TREE) {
-                        git_tree* subtree = nullptr;
-                        if (git_tree_entry_to_object(
-                                reinterpret_cast<git_object**>(&subtree),
-                                repo, entry) == 0) {
-                            walk_tree(subtree);
-                            git_tree_free(subtree);
-                        }
-                    } else if (entry_type == GIT_OBJECT_BLOB) {
-                        git_blob* blob = nullptr;
-                        if (git_blob_lookup(&blob, repo,
-                                git_tree_entry_id(entry)) == 0) {
-                            const char* content =
-                                (const char*)git_blob_rawcontent(blob);
-                            auto blob_sz = git_blob_rawsize(blob);
-
-                            // 检查此数据对象是否为 LFS 指针。
-                            auto ptr = pointer::decode(
-                                std::string_view(content, blob_sz));
-                            if (ptr.has_value()) {
-                                if (seen_oids.insert(ptr->oid).second) {
-                                    lfs_object obj;
-                                    obj.oid = ptr->oid;
-                                    obj.size = ptr->size;
-                                    obj.exists = true;
-                                    objects.push_back(std::move(obj));
-                                }
-                            }
-                            git_blob_free(blob);
-                        }
-                    }
-                }
-            };
-
-        walk_tree(tree);
-        git_tree_free(tree);
-        git_commit_free(commit);
     }
 
     return objects;
 }
 
-int push_lfs_objects(
-    git_repository* repo,
-    const std::string& remote_url,
-    const std::vector<lfs_object>& objects,
-    const std::string& username,
-    const std::string& password)
+// ============================================================================
+// LFS HTTP 推送 — 使用系统 curl 命令行工具
+// ============================================================================
+
+int push_lfs_objects_http(
+    const std::string& lfs_push_url,
+    const std::filesystem::path& gitdir,
+    const std::string& /*auth_header*/)
 {
-    if (objects.empty())
+    if (lfs_push_url.empty())
+        return -1;
+
+    // 收集所有本地 LFS 对象。
+    auto objects = collect_new_lfs_objects(gitdir);
+    if (objects.empty()) {
+        // 没有要推送的内容。
         return 0;
-
-    // 从远程 URL 构建 LFS API 端点。
-    // Git LFS 使用：<remote_url>/objects/batch
-    std::string lfs_endpoint = remote_url;
-    // 去除末尾的 .git（如果存在）。
-    if (lfs_endpoint.size() > 4 &&
-        lfs_endpoint.substr(lfs_endpoint.size() - 4) == ".git") {
-        lfs_endpoint.resize(lfs_endpoint.size() - 4);
     }
-    // 去除末尾的斜杠。
-    while (!lfs_endpoint.empty() && lfs_endpoint.back() == '/')
-        lfs_endpoint.pop_back();
-    lfs_endpoint += "/objects/batch";
 
-    (void)lfs_endpoint;
-    (void)username;
-    (void)password;
+    // 构建 LFS 批量 API 请求的 JSON。
+    std::string json_body = R"({"operation":"upload","transfers":["basic"],"objects":[)";
+    for (size_t i = 0; i < objects.size(); ++i) {
+        if (i > 0)
+            json_body += ",";
+        json_body += "{\"oid\":\"" + objects[i].oid +
+                     "\",\"size\":" + std::to_string(objects[i].size) + "}";
+    }
+    json_body += R"(],"ref":{"name":"refs/heads/master"}})";
 
-    // 目前返回 0（成功）并委托给外部的
-    // `git lfs push` 命令，该命令更可靠。
-    //
-    // 在完整实现中，这将执行 HTTP POST 到
-    // LFS 批量 API 以上传对象。当前的存根
-    // 允许调用者回退到 `git lfs push --object-id`。
-    //
-    // TODO：使用 Boost.Asio 或 libcurl 实现直接 HTTP 批量上传，
-    //      以实现完全自包含的解决方案。
+    // 将 JSON 写入临时文件。
+    auto batch_tmp = gitdir / k_lfs_tmp_dir;
+    std::error_code ec;
+    std::filesystem::create_directories(batch_tmp, ec);
 
-    return 0;
+    auto req_file = batch_tmp / "batch-req.json";
+    {
+        std::ofstream f(req_file);
+        f << json_body;
+    }
+
+    // 构建批量 API URL。
+    std::string base_url = lfs_push_url;
+    // 移除末尾的 .git（如有）。
+    if (base_url.size() > 4 &&
+        base_url.substr(base_url.size() - 4) == ".git") {
+        base_url.resize(base_url.size() - 4);
+    }
+    // 移除末尾的斜杠。
+    while (!base_url.empty() && base_url.back() == '/')
+        base_url.pop_back();
+    std::string batch_url = base_url + "/objects/batch";
+
+    // 构建 curl 命令。
+    // 首先执行批量 API 请求以获取上传 URL。
+    auto resp_file = batch_tmp / "batch-resp.json";
+    std::string curl_cmd =
+        "curl -s -X POST \"" + batch_url + "\" "
+        "-H \"Content-Type: application/vnd.git-lfs+json\" "
+        "-H \"Accept: application/vnd.git-lfs+json\" "
+        "-d @\"" + req_file.string() + "\" "
+        "-o \"" + resp_file.string() + "\" 2>/dev/null";
+
+    int ret = std::system(curl_cmd.c_str());
+    if (ret != 0) {
+        return -1;
+    }
+
+    // 读取响应。
+    std::ifstream resp_stream(resp_file);
+    if (!resp_stream)
+        return -1;
+    std::string response((std::istreambuf_iterator<char>(resp_stream)),
+                          std::istreambuf_iterator<char>());
+
+    // 简单解析 JSON 响应以获取上传 URL。
+    // 查找 "upload": 和 "href":
+    // 对于每个返回的对象，我们使用 curl 上传。
+    size_t obj_pos = 0;
+    int upload_count = 0;
+    int error_count = 0;
+
+    while ((obj_pos = response.find("\"upload\"", obj_pos)) != std::string::npos) {
+        // 查找此对象的 href。
+        auto href_pos = response.find("\"href\"", obj_pos);
+        if (href_pos == std::string::npos)
+            break;
+
+        // 提取 URL。
+        auto colon = response.find(':', href_pos);
+        if (colon == std::string::npos)
+            break;
+        auto url_start = response.find('"', colon + 1);
+        if (url_start == std::string::npos)
+            break;
+        ++url_start;
+        auto url_end = response.find('"', url_start);
+        if (url_end == std::string::npos)
+            break;
+
+        std::string upload_url = response.substr(url_start, url_end - url_start);
+        // 转义 JSON 中的 \/。
+        {
+            auto slash_pos = upload_url.find("\\/");
+            while (slash_pos != std::string::npos) {
+                upload_url.replace(slash_pos, 2, "/");
+                slash_pos = upload_url.find("\\/");
+            }
+        }
+
+        // 我们需要此 URL 对应的 OID。
+        // 从 upload URL 之前的 "oid": 字段获取。
+        auto oid_pos = response.rfind("\"oid\"", href_pos);
+        std::string oid;
+        if (oid_pos != std::string::npos) {
+            auto oid_colon = response.find(':', oid_pos);
+            if (oid_colon != std::string::npos) {
+                auto oid_start = response.find('"', oid_colon + 1);
+                if (oid_start != std::string::npos) {
+                    ++oid_start;
+                    auto oid_end = response.find('"', oid_start);
+                    if (oid_end != std::string::npos) {
+                        oid = response.substr(oid_start, oid_end - oid_start);
+                    }
+                }
+            }
+        }
+
+        if (!oid.empty()) {
+            // 找到本地对象文件。
+            object_store store(gitdir);
+            auto obj_path = store.object_path(oid);
+
+            if (std::filesystem::exists(obj_path, ec)) {
+                // 使用 curl 上传。
+                std::string upload_cmd =
+                    "curl -s -X PUT \"" + upload_url + "\" "
+                    "-H \"Content-Type: application/octet-stream\" "
+                    "--data-binary @\"" + obj_path.string() + "\" "
+                    "-o /dev/null -w \"%{http_code}\" 2>/dev/null";
+
+                auto upload_ret = std::system(upload_cmd.c_str());
+                if (upload_ret == 0)
+                    ++upload_count;
+                else
+                    ++error_count;
+            } else {
+                ++error_count;
+            }
+        }
+
+        obj_pos = href_pos + 1;
+    }
+
+    // 清理临时文件。
+    std::filesystem::remove(req_file, ec);
+    std::filesystem::remove(resp_file, ec);
+
+    return (error_count == 0) ? 0 : -1;
 }
 
-} // namespace lfs（LFS 命名空间）
-} // namespace gitpp（gitpp 命名空间）
+} // namespace lfs
+} // namespace gitpp

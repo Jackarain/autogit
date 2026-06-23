@@ -170,92 +170,18 @@ int gitwork(gitpp::repo& repo)
 	gitpp::index index = repo.get_index();
 	gitpp::status_list status = repo.new_status_list();
 
-	// 如果启用了 LFS，则加载 LFS 模式。
-	std::vector<std::string> lfs_patterns;
-	std::string git_dir = repo.path();
-	if (global_enable_lfs)
-	{
-		// 从 .gitattributes 加载模式。
-		lfs_patterns = gitpp::lfs::load_lfs_patterns(
-			git_dir, repo.native());
-		// 合并通过 --lfs_pattern 命令行参数指定的任何模式。
-		for (const auto& pat : global_lfs_patterns)
-		{
-			if (std::find(lfs_patterns.begin(),
-				lfs_patterns.end(), pat) == lfs_patterns.end())
-				lfs_patterns.push_back(pat);
-		}
-	}
-
 	size_t commit_count = 0;
 	for (const git_status_entry* entry : status)
 	{
-		auto& old_file_path = entry->index_to_workdir->old_file.path;
+		const char* old_file_path = entry->index_to_workdir->old_file.path;
 		auto handle = index.native();
 		int ret = 0;
-
-		// 确定实际要暂存的路径。
-		// 对于 LFS 跟踪的文件，我们改为暂存指针文件。
-		std::string stage_path = old_file_path;
-
-		if (global_enable_lfs &&
-			!lfs_patterns.empty() &&
-			(entry->status & (GIT_STATUS_WT_NEW |
-				GIT_STATUS_WT_MODIFIED |
-				GIT_STATUS_WT_TYPECHANGE)))
-		{
-			bool is_lfs = gitpp::lfs::path_matches_lfs(
-				old_file_path, lfs_patterns);
-
-			if (is_lfs)
-			{
-				// 解析文件的完整路径。
-				auto workdir = repo.workdir();
-				auto full_path = std::filesystem::path(workdir) /
-					std::filesystem::path(old_file_path);
-
-				// 检查文件是否已经是一个 LFS 指针文件。
-				bool already_pointer = false;
-				if (std::filesystem::exists(full_path))
-					already_pointer = gitpp::lfs::pointer::is_pointer_file(
-						full_path);
-
-				if (!already_pointer)
-				{
-					// 创建 LFS 指针并存储对象。
-					auto ptr = gitpp::lfs::pointer::create_from_file(
-						full_path, git_dir);
-					if (ptr.has_value())
-					{
-						// 将指针文件写回工作目录。
-						if (gitpp::lfs::write_pointer_file(
-								full_path, *ptr))
-						{
-							LOG_DBG << "lfs pointer created for: "
-								<< old_file_path
-								<< " (oid: " << ptr->oid
-								<< ", size: " << ptr->size << ")";
-						}
-						else
-						{
-							LOG_ERR << "lfs: failed to write pointer for: "
-								<< old_file_path;
-						}
-					}
-					else
-					{
-						LOG_ERR << "lfs: failed to create object for: "
-							<< old_file_path;
-					}
-				}
-			}
-		}
 
 		switch (entry->status & 0xfffffff0)
 		{
 		case GIT_STATUS_WT_NEW:
 		{
-			ret = git_index_add_bypath(handle, stage_path.c_str());
+			ret = git_index_add_bypath(handle, old_file_path);
 
 			commit_count++;
 			LOG_DBG << "Untracked file: "
@@ -264,7 +190,7 @@ int gitwork(gitpp::repo& repo)
 		break;
 		case GIT_STATUS_WT_MODIFIED:
 		{
-			ret = git_index_add_bypath(handle, stage_path.c_str());
+			ret = git_index_add_bypath(handle, old_file_path);
 
 			commit_count++;
 			LOG_DBG << "modify file: "
@@ -282,7 +208,7 @@ int gitwork(gitpp::repo& repo)
 		break;
 		case GIT_STATUS_WT_TYPECHANGE:
 		{
-			ret = git_index_add_bypath(handle, stage_path.c_str());
+			ret = git_index_add_bypath(handle, old_file_path);
 
 			commit_count++;
 			LOG_DBG << "typechg file: "
@@ -296,7 +222,7 @@ int gitwork(gitpp::repo& repo)
 				<< " to "
 				<< entry->index_to_workdir->new_file.path;
 
-			ret = git_index_add_bypath(handle, stage_path.c_str());
+			ret = git_index_add_bypath(handle, old_file_path);
 			commit_count++;
 		}
 		break;
@@ -395,39 +321,47 @@ int gitwork(gitpp::repo& repo)
 		return EXIT_FAILURE;
 	}
 
-	// 如果启用了 LFS，则在常规 Git 推送之前尝试推送 LFS 对象。
-	// 我们首先尝试外部的 `git lfs push` 命令（最可靠），
-	// 如果失败则回退到内置的批量上传。
+	// 如果启用了 LFS，则在常规 Git 推送之前通过 LFS 批量 API 推送 LFS 对象。
 	if (global_enable_lfs)
 	{
-		// 构建 git-lfs 推送命令。
-		// 如果指定了自定义的 LFS 推送 URL，则设置 GIT_LFS_URL 或
-		// 通过 git config 临时配置 LFS 远程 URL。
-		std::string lfs_cmd = "git -C \"" + repo.workdir() + "\" lfs push --all origin";
-		if (!global_lfs_push_url.empty())
+		// 确定 LFS 推送 URL：优先使用 --lfs_push_url，否则从 remote.origin.url 推导。
+		std::string lfs_url = global_lfs_push_url;
+		if (lfs_url.empty())
 		{
-			// 使用自定义的 LFS 推送 URL 替代默认值。
-			lfs_cmd = "git -C \"" + repo.workdir()
-				+ "\" config lfs.url \"" + global_lfs_push_url
-				+ "\" && git -C \"" + repo.workdir()
-				+ "\" lfs push --all origin";
+			try {
+				auto origin = repo.get_remote("origin");
+				lfs_url = origin.url();
+			} catch (...) {}
 		}
-		lfs_cmd += " 2>/dev/null";
 
-		// 先尝试外部的 git-lfs。
-		int lfs_ret = std::system(lfs_cmd.c_str());
-
-		if (lfs_ret == 0)
+		if (!lfs_url.empty())
 		{
-			LOG_DBG << "LFS objects pushed successfully via git-lfs.";
+			LOG_DBG << "Pushing LFS objects to: " << lfs_url;
+
+			int lfs_ret = gitpp::lfs::push_lfs_objects_http(
+				lfs_url, repo.path());
+
+			if (lfs_ret == 0)
+			{
+				LOG_DBG << "LFS objects pushed successfully via HTTP batch API.";
+			}
+			else
+			{
+				LOG_DBG << "LFS HTTP push failed (ret=" << lfs_ret
+					<< "), trying git-lfs fallback.";
+
+				std::string lfs_cmd = "git -C \"" + repo.workdir()
+					+ "\" lfs push --all origin 2>/dev/null";
+				int fallback_ret = std::system(lfs_cmd.c_str());
+				if (fallback_ret != 0)
+				{
+					LOG_DBG << "git-lfs fallback also failed, skipping LFS upload.";
+				}
+			}
 		}
 		else
 		{
-			// 外部的 git-lfs 不可用或推送失败；记录警告。
-			// 内置的 LFS 批量上传可以在这里扩展。
-			LOG_DBG << "git-lfs not available or push failed (ret="
-				<< lfs_ret << "), skipping LFS object upload. "
-				<< "Install git-lfs(1) for automatic LFS push support.";
+			LOG_DBG << "LFS push URL not available, skipping LFS object upload.";
 		}
 	}
 
@@ -511,6 +445,42 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 			<< ", is_empty: " << repo.is_empty()
 			<< ", is_head_detached: " << repo.is_head_detached()
 			<< ", is_head_unborn: " << repo.is_head_unborn();
+
+		// 如果启用了 LFS，则注册 LFS filter 并将模式写入 .git/info/attributes。
+		if (global_enable_lfs)
+		{
+			std::string git_dir_path = repo.path();
+			auto lfs_patterns = gitpp::lfs::load_lfs_patterns(
+				git_dir_path, repo.native());
+
+			// 合并通过 --lfs_pattern 命令行参数指定的模式。
+			for (const auto& pat : global_lfs_patterns)
+			{
+				if (std::find(lfs_patterns.begin(),
+					lfs_patterns.end(), pat) == lfs_patterns.end())
+					lfs_patterns.push_back(pat);
+			}
+
+			// 将模式写入 .git/info/attributes，使 filter=lfs 生效。
+			int attr_ret = gitpp::lfs::write_lfs_attributes(
+				git_dir_path, lfs_patterns);
+			if (attr_ret != 0)
+			{
+				LOG_WARN << "Failed to write LFS attributes to .git/info/attributes";
+			}
+
+			// 注册 LFS filter。
+			int filter_ret = gitpp::lfs::register_lfs_filter(git_dir_path);
+			if (filter_ret != 0)
+			{
+				LOG_WARN << "Failed to register LFS filter (ret="
+					<< filter_ret << ")";
+			}
+			else
+			{
+				LOG_DBG << "LFS filter registered successfully";
+			}
+		}
 
 		// 获取仓库的 HEAD 引用，根据引用获取最新的 commit 对象.
 		// 注意: 当新仓库首次运行时 HEAD 可能未出生 (unborn)，
@@ -677,6 +647,9 @@ net::awaitable<int> co_main(int argc, char** argv)
 	);
 
 	terminator_signal.clear();
+
+	// 注销 LFS filter。
+	gitpp::lfs::unregister_lfs_filter();
 
 	co_return EXIT_SUCCESS;
 }
