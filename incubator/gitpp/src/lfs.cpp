@@ -25,6 +25,7 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/use_future.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
+#include <boost/json.hpp>
 
 #ifdef _WIN32
 #  include <process.h>
@@ -1132,15 +1133,23 @@ int push_lfs_objects_http(
         return 0;
     }
 
-    // 构建 LFS 批量 API 请求的 JSON。
-    std::string json_body = R"({"operation":"upload","transfers":["basic"],"objects":[)";
-    for (size_t i = 0; i < objects.size(); ++i) {
-        if (i > 0)
-            json_body += ",";
-        json_body += "{\"oid\":\"" + objects[i].oid +
-                     "\",\"size\":" + std::to_string(objects[i].size) + "}";
+    // 构建 LFS 批量 API 请求的 JSON (使用 boost.json).
+    namespace json = boost::json;
+
+    json::value body = {
+        {"operation", "upload"},
+        {"transfers", {"basic"}},
+        {"objects", json::array()},
+        {"ref", {{"name", "refs/heads/master"}}}
+    };
+    auto& objects_arr = body.as_object()["objects"].as_array();
+    for (const auto& obj : objects) {
+        objects_arr.push_back({
+            {"oid", obj.oid},
+            {"size", obj.size}
+        });
     }
-    json_body += R"(],"ref":{"name":"refs/heads/master"}})";
+    std::string json_body = json::serialize(body);
 
     // 构建批量 API URL。
     std::string base_url = lfs_push_url;
@@ -1213,129 +1222,118 @@ int push_lfs_objects_http(
 
     std::fprintf(stderr, "LFS: batch request succeeded, processing upload URLs...\n");
 
-    // 简单解析 JSON 响应以获取上传 URL。
-    // 查找 "upload": 和 "href":
-    // 对于每个返回的对象，使用 httpc 上传。
-    size_t obj_pos = 0;
+    // 使用 boost.json 解析响应.
+    json::value jv;
+    try {
+        jv = json::parse(response_body);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "LFS: failed to parse batch response JSON: %s\n", e.what());
+        return -1;
+    }
+
+    auto& resp_obj = jv.as_object();
+    if (!resp_obj.contains("objects")) {
+        std::fprintf(stderr, "LFS: batch response missing 'objects' field.\n");
+        return -1;
+    }
+
+    auto& resp_objects = resp_obj["objects"].as_array();
     int error_count = 0;
     int upload_count = 0;
     int success_count = 0;
 
-    while ((obj_pos = response_body.find("\"upload\"", obj_pos)) !=
-           std::string::npos) {
-        // 查找此对象的 href。
-        auto href_pos = response_body.find("\"href\"", obj_pos);
-        if (href_pos == std::string::npos)
-            break;
+    for (auto& elem : resp_objects) {
+        auto& obj = elem.as_object();
 
-        // 提取 URL。
-        auto colon = response_body.find(':', href_pos);
-        if (colon == std::string::npos)
-            break;
-        auto url_start = response_body.find('"', colon + 1);
-        if (url_start == std::string::npos)
-            break;
-        ++url_start;
-        auto url_end = response_body.find('"', url_start);
-        if (url_end == std::string::npos)
-            break;
+        // 提取 OID.
+        if (!obj.contains("oid") || !obj["oid"].is_string()) {
+            std::fprintf(stderr, "LFS: object entry missing 'oid'.\n");
+            ++error_count;
+            continue;
+        }
+        std::string oid = json::value_to<std::string>(obj["oid"]);
 
-        std::string upload_url =
-            response_body.substr(url_start, url_end - url_start);
-        // 转义 JSON 中的 \/。
-        {
-            auto slash_pos = upload_url.find("\\/");
-            while (slash_pos != std::string::npos) {
-                upload_url.replace(slash_pos, 2, "/");
-                slash_pos = upload_url.find("\\/");
+        // 尝试从 actions.upload 或直接 upload 中获取 href.
+        std::string upload_url;
+        if (obj.contains("actions") && obj["actions"].is_object()) {
+            auto& actions = obj["actions"].as_object();
+            if (actions.contains("upload") && actions["upload"].is_object()) {
+                auto& upload = actions["upload"].as_object();
+                if (upload.contains("href") && upload["href"].is_string())
+                    upload_url = json::value_to<std::string>(upload["href"]);
             }
+        } else if (obj.contains("upload") && obj["upload"].is_object()) {
+            auto& upload = obj["upload"].as_object();
+            if (upload.contains("href") && upload["href"].is_string())
+                upload_url = json::value_to<std::string>(upload["href"]);
         }
 
-        // 获取此 URL 对应的 OID。
-        auto oid_pos = response_body.rfind("\"oid\"", href_pos);
-        std::string oid;
-        if (oid_pos != std::string::npos) {
-            auto oid_colon = response_body.find(':', oid_pos);
-            if (oid_colon != std::string::npos) {
-                auto oid_start = response_body.find('"', oid_colon + 1);
-                if (oid_start != std::string::npos) {
-                    ++oid_start;
-                    auto oid_end = response_body.find('"', oid_start);
-                    if (oid_end != std::string::npos) {
-                        oid = response_body.substr(
-                            oid_start, oid_end - oid_start);
-                    }
-                }
-            }
+        if (upload_url.empty()) {
+            std::fprintf(stderr, "LFS: no upload href for oid=%s, skipping.\n",
+                oid.c_str());
+            ++error_count;
+            continue;
         }
 
-        if (!oid.empty()) {
-            // 找到本地对象文件。
-            object_store store(gitdir);
-            auto obj_path = store.object_path(oid);
+        // 找到本地对象文件.
+        object_store store(gitdir);
+        auto obj_path = store.object_path(oid);
 
-            std::error_code ec;
-            if (std::filesystem::exists(obj_path, ec)) {
-                ++upload_count;
-                std::fprintf(stderr, "LFS: uploading object [%d/%zu] oid=%s...\n",
-                    upload_count, objects.size(), oid.c_str());
+        std::error_code ec;
+        if (std::filesystem::exists(obj_path, ec)) {
+            ++upload_count;
+            std::fprintf(stderr, "LFS: uploading object [%d/%zu] oid=%s...\n",
+                upload_count, objects.size(), oid.c_str());
 
-                // 使用 httpc 流式上传文件（PUT）。
-                ioc.restart();
-                httpc::http_request upload_req;
-                upload_req.method(httpc::verb::put);
-                upload_req.set(httpc::http::field::content_type,
-                               "application/octet-stream");
+            // 使用 httpc 流式上传文件（PUT）。
+            ioc.restart();
+            httpc::http_request upload_req;
+            upload_req.method(httpc::verb::put);
+            upload_req.set(httpc::http::field::content_type,
+                           "application/octet-stream");
 
-                auto upload_future = boost::asio::co_spawn(ioc,
-                    client.async_upload_file(upload_url, obj_path.string(),
-                        upload_req),
-                    boost::asio::use_future);
-                ioc.run();
+            auto upload_future = boost::asio::co_spawn(ioc,
+                client.async_upload_file(upload_url, obj_path.string(),
+                    upload_req),
+                boost::asio::use_future);
+            ioc.run();
 
-                boost::system::result<httpc::http_response> upload_result;
-                try {
-                    upload_result = upload_future.get();
-                } catch (const std::exception& e) {
-                    std::fprintf(stderr, "LFS: upload exception for oid=%s: %s\n",
-                        oid.c_str(), e.what());
-                    ++error_count;
-                    obj_pos = href_pos + 1;
-                    continue;
-                } catch (...) {
-                    std::fprintf(stderr, "LFS: upload unknown exception for oid=%s\n",
-                        oid.c_str());
-                    ++error_count;
-                    obj_pos = href_pos + 1;
-                    continue;
-                }
-
-                if (!upload_result) {
-                    std::fprintf(stderr, "LFS: upload failed for oid=%s (error code %d).\n",
-                        oid.c_str(), upload_result.error().value());
-                    ++error_count;
-                } else {
-                    auto status = upload_result->result_int();
-                    if (status >= 200 && status < 300) {
-                        std::fprintf(stderr, "LFS: upload succeeded for oid=%s (status=%d).\n",
-                            oid.c_str(), status);
-                        ++success_count;
-                    } else {
-                        std::fprintf(stderr, "LFS: upload failed for oid=%s (status=%d).\n",
-                            oid.c_str(), status);
-                        ++error_count;
-                    }
-                }
-            } else {
-                std::fprintf(stderr, "LFS: local object file not found for oid=%s.\n",
+            boost::system::result<httpc::http_response> upload_result;
+            try {
+                upload_result = upload_future.get();
+            } catch (const std::exception& e) {
+                std::fprintf(stderr, "LFS: upload exception for oid=%s: %s\n",
+                    oid.c_str(), e.what());
+                ++error_count;
+                continue;
+            } catch (...) {
+                std::fprintf(stderr, "LFS: upload unknown exception for oid=%s\n",
                     oid.c_str());
                 ++error_count;
+                continue;
+            }
+
+            if (!upload_result) {
+                std::fprintf(stderr, "LFS: upload failed for oid=%s (error code %d).\n",
+                    oid.c_str(), upload_result.error().value());
+                ++error_count;
+            } else {
+                auto status = upload_result->result_int();
+                if (status >= 200 && status < 300) {
+                    std::fprintf(stderr, "LFS: upload succeeded for oid=%s (status=%d).\n",
+                        oid.c_str(), status);
+                    ++success_count;
+                } else {
+                    std::fprintf(stderr, "LFS: upload failed for oid=%s (status=%d).\n",
+                        oid.c_str(), status);
+                    ++error_count;
+                }
             }
         } else {
-            std::fprintf(stderr, "LFS: could not extract OID from batch response.\n");
+            std::fprintf(stderr, "LFS: local object file not found for oid=%s.\n",
+                oid.c_str());
+            ++error_count;
         }
-
-        obj_pos = href_pos + 1;
     }
 
     std::fprintf(stderr, "LFS: push completed: %d success(es), %d error(s).\n",

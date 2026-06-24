@@ -22,6 +22,7 @@ target_link_libraries(gitpp
 		libgit2package
 	PRIVATE
 		httpc
+		boost_json
 )
 
 # Require C++20  (for std::source_location, std::span, spaceship operator, etc.)
