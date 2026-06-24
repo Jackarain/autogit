@@ -4,6 +4,8 @@
 
 #include "gitpp/lfs.hpp"
 
+#include "httpc/httpc.hpp"
+
 #include <git2.h>
 #include <git2/sys/filter.h>
 
@@ -17,6 +19,11 @@
 #include <sstream>
 #include <unordered_set>
 #include <vector>
+
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/use_future.hpp>
+#include <boost/beast/core/buffers_to_string.hpp>
 
 #ifdef _WIN32
 #  include <process.h>
@@ -1103,13 +1110,13 @@ std::vector<lfs_object> collect_new_lfs_objects(
 }
 
 // ============================================================================
-// LFS HTTP 推送 — 使用系统 curl 命令行工具
+// LFS HTTP 推送 — 使用 httpc 库
 // ============================================================================
 
 int push_lfs_objects_http(
     const std::string& lfs_push_url,
     const std::filesystem::path& gitdir,
-    const std::string& /*auth_header*/)
+    const std::string& auth_header)
 {
     if (lfs_push_url.empty())
         return -1;
@@ -1131,17 +1138,6 @@ int push_lfs_objects_http(
     }
     json_body += R"(],"ref":{"name":"refs/heads/master"}})";
 
-    // 将 JSON 写入临时文件。
-    auto batch_tmp = gitdir / k_lfs_tmp_dir;
-    std::error_code ec;
-    std::filesystem::create_directories(batch_tmp, ec);
-
-    auto req_file = batch_tmp / "batch-req.json";
-    {
-        std::ofstream f(req_file);
-        f << json_body;
-    }
-
     // 构建批量 API URL。
     std::string base_url = lfs_push_url;
     // 移除末尾的 .git（如有）。
@@ -1154,54 +1150,77 @@ int push_lfs_objects_http(
         base_url.pop_back();
     std::string batch_url = base_url + "/objects/batch";
 
-    // 构建 curl 命令。
-    // 首先执行批量 API 请求以获取上传 URL。
-    auto resp_file = batch_tmp / "batch-resp.json";
-    std::string curl_cmd =
-        "curl -s -X POST \"" + batch_url + "\" "
-        "-H \"Content-Type: application/vnd.git-lfs+json\" "
-        "-H \"Accept: application/vnd.git-lfs+json\" "
-        "-d @\"" + req_file.string() + "\" "
-        "-o \"" + resp_file.string() + "\" 2>/dev/null";
+    // 使用 httpc 发送批量 API 请求（POST）。
+    boost::asio::io_context ioc;
 
-    int ret = std::system(curl_cmd.c_str());
-    if (ret != 0) {
+    httpc::http_client client(ioc.get_executor());
+    client.timeout(std::chrono::seconds(120));
+    client.connect_timeout(std::chrono::seconds(30));
+    client.check_certificate(false);
+    client.follow_redirect(false);
+
+    httpc::http_request batch_req;
+    batch_req.method(httpc::verb::post);
+    batch_req.set(httpc::http::field::content_type,
+                  "application/vnd.git-lfs+json");
+    batch_req.set(httpc::http::field::accept,
+                  "application/vnd.git-lfs+json");
+    if (!auth_header.empty())
+        batch_req.set(httpc::http::field::authorization, auth_header);
+    batch_req.body() = json_body;
+    batch_req.prepare_payload();
+
+    // 通过协程异步执行，使用 use_future 同步等待结果。
+    auto batch_future = boost::asio::co_spawn(ioc,
+        client.async_perform(batch_url, batch_req),
+        boost::asio::use_future);
+    ioc.run();
+
+    boost::system::result<httpc::http_response> batch_result;
+    try {
+        batch_result = batch_future.get();
+    } catch (...) {
         return -1;
     }
 
-    // 读取响应。
-    std::ifstream resp_stream(resp_file);
-    if (!resp_stream)
+    if (!batch_result)
         return -1;
-    std::string response((std::istreambuf_iterator<char>(resp_stream)),
-                          std::istreambuf_iterator<char>());
+
+    auto& response = *batch_result;
+    if (response.result() != httpc::http::status::ok)
+        return -1;
+
+    // 获取响应体字符串。
+    std::string response_body =
+        boost::beast::buffers_to_string(response.body().data());
 
     // 简单解析 JSON 响应以获取上传 URL。
     // 查找 "upload": 和 "href":
-    // 对于每个返回的对象，我们使用 curl 上传。
+    // 对于每个返回的对象，使用 httpc 上传。
     size_t obj_pos = 0;
-    int upload_count = 0;
     int error_count = 0;
 
-    while ((obj_pos = response.find("\"upload\"", obj_pos)) != std::string::npos) {
+    while ((obj_pos = response_body.find("\"upload\"", obj_pos)) !=
+           std::string::npos) {
         // 查找此对象的 href。
-        auto href_pos = response.find("\"href\"", obj_pos);
+        auto href_pos = response_body.find("\"href\"", obj_pos);
         if (href_pos == std::string::npos)
             break;
 
         // 提取 URL。
-        auto colon = response.find(':', href_pos);
+        auto colon = response_body.find(':', href_pos);
         if (colon == std::string::npos)
             break;
-        auto url_start = response.find('"', colon + 1);
+        auto url_start = response_body.find('"', colon + 1);
         if (url_start == std::string::npos)
             break;
         ++url_start;
-        auto url_end = response.find('"', url_start);
+        auto url_end = response_body.find('"', url_start);
         if (url_end == std::string::npos)
             break;
 
-        std::string upload_url = response.substr(url_start, url_end - url_start);
+        std::string upload_url =
+            response_body.substr(url_start, url_end - url_start);
         // 转义 JSON 中的 \/。
         {
             auto slash_pos = upload_url.find("\\/");
@@ -1211,19 +1230,19 @@ int push_lfs_objects_http(
             }
         }
 
-        // 我们需要此 URL 对应的 OID。
-        // 从 upload URL 之前的 "oid": 字段获取。
-        auto oid_pos = response.rfind("\"oid\"", href_pos);
+        // 获取此 URL 对应的 OID。
+        auto oid_pos = response_body.rfind("\"oid\"", href_pos);
         std::string oid;
         if (oid_pos != std::string::npos) {
-            auto oid_colon = response.find(':', oid_pos);
+            auto oid_colon = response_body.find(':', oid_pos);
             if (oid_colon != std::string::npos) {
-                auto oid_start = response.find('"', oid_colon + 1);
+                auto oid_start = response_body.find('"', oid_colon + 1);
                 if (oid_start != std::string::npos) {
                     ++oid_start;
-                    auto oid_end = response.find('"', oid_start);
+                    auto oid_end = response_body.find('"', oid_start);
                     if (oid_end != std::string::npos) {
-                        oid = response.substr(oid_start, oid_end - oid_start);
+                        oid = response_body.substr(
+                            oid_start, oid_end - oid_start);
                     }
                 }
             }
@@ -1234,19 +1253,39 @@ int push_lfs_objects_http(
             object_store store(gitdir);
             auto obj_path = store.object_path(oid);
 
+            std::error_code ec;
             if (std::filesystem::exists(obj_path, ec)) {
-                // 使用 curl 上传。
-                std::string upload_cmd =
-                    "curl -sf -X PUT \"" + upload_url + "\" "
-                    "-H \"Content-Type: application/octet-stream\" "
-                    "--data-binary @\"" + obj_path.string() + "\" "
-                    "-o /dev/null 2>/dev/null";
+                // 使用 httpc 流式上传文件（PUT）。
+                ioc.restart();
+                httpc::http_request upload_req;
+                upload_req.method(httpc::verb::put);
+                upload_req.set(httpc::http::field::content_type,
+                               "application/octet-stream");
 
-                auto upload_ret = std::system(upload_cmd.c_str());
-                if (upload_ret == 0)
-                    ++upload_count;
-                else
+                auto upload_future = boost::asio::co_spawn(ioc,
+                    client.async_upload_file(upload_url, obj_path.string(),
+                        upload_req),
+                    boost::asio::use_future);
+                ioc.run();
+
+                boost::system::result<httpc::http_response> upload_result;
+                try {
+                    upload_result = upload_future.get();
+                } catch (...) {
                     ++error_count;
+                    obj_pos = href_pos + 1;
+                    continue;
+                }
+
+                if (!upload_result)
+                    ++error_count;
+                else {
+                    auto status = upload_result->result_int();
+                    if (status >= 200 && status < 300)
+                        ; // 上传成功
+                    else
+                        ++error_count;
+                }
             } else {
                 ++error_count;
             }
@@ -1254,10 +1293,6 @@ int push_lfs_objects_http(
 
         obj_pos = href_pos + 1;
     }
-
-    // 清理临时文件。
-    std::filesystem::remove(req_file, ec);
-    std::filesystem::remove(resp_file, ec);
 
     return (error_count == 0) ? 0 : -1;
 }

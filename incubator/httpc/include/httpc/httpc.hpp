@@ -112,7 +112,7 @@ namespace httpc {
         net::awaitable<http_result> async_upload_file(
             const std::string& url,
             const std::string& file_path,
-            const http_request& req);
+            const http_request& req = http_request{});
 
         // ------------------------------------------------------------
         // 以下接口为手工精细控制.
