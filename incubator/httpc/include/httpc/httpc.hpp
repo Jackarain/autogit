@@ -73,6 +73,8 @@ namespace httpc {
         ~http_client();
 
     public:
+        // ------------------------------------------------------------
+
         // 异步执行 HTTP 请求, 返回响应结果.
         // 使用示例:
         //
@@ -90,6 +92,26 @@ namespace httpc {
         //
         net::awaitable<http_result> async_perform(
             const std::string& url, const http_request& req);
+
+        // ------------------------------------------------------------
+        // 以下接口为手工精细控制.
+
+        // 连接 URL 指向的服务器.
+        net::awaitable<boost::system::error_code> async_connect(
+            const urls::url_view& url);
+
+        // 发送请求并接收响应.
+        net::awaitable<boost::system::error_code> async_send_request(
+            const urls::url_view& url, const http_request& req);
+
+        // 读取完整响应 (处理下载文件/传输回调).
+        net::awaitable<http_result> async_read_response();
+
+        // 关闭当前连接.
+        void close();
+
+        // ------------------------------------------------------------
+        // 以下接口用于配置或获取 http_client 相关配置.
 
         // 设置下载到指定文件.
         void set_download_file(const std::string& file_path) noexcept;
@@ -119,21 +141,6 @@ namespace httpc {
 
         // 获取执行器.
         net::any_io_executor get_executor() noexcept;
-
-    private:
-        // 连接 URL 指向的服务器.
-        net::awaitable<boost::system::error_code> async_connect(
-            const urls::url_view& url);
-
-        // 发送请求并接收响应.
-        net::awaitable<http_result> async_send_request(
-            const urls::url_view& url, const http_request& req);
-
-        // 读取完整响应 (处理下载文件/传输回调).
-        net::awaitable<http_result> async_read_response();
-
-        // 关闭当前连接.
-        void close();
 
     private:
         // 执行器.

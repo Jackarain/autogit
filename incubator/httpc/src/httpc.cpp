@@ -159,7 +159,7 @@ namespace httpc {
     // 发送请求 & 接收响应
     // -----------------------------------------------------------------------
 
-    net::awaitable<http_result> http_client::async_send_request(
+    net::awaitable<boost::system::error_code> http_client::async_send_request(
         const urls::url_view& url, const http_request& req)
     {
         boost::system::error_code ec;
@@ -220,12 +220,8 @@ namespace httpc {
         };
 
         ec = co_await boost::variant2::visit(send_visitor, stream_socket_);
-        if (ec)
-            co_return ec;
 
-        // 读取响应
-        auto result = co_await async_read_response();
-        co_return result;
+        co_return ec;
     }
 
     // -----------------------------------------------------------------------
@@ -378,8 +374,13 @@ namespace httpc {
             if (ec)
                 co_return ec;
 
-            // 发送请求并接收响应
-            auto result = co_await async_send_request(url_view, req);
+            // 发送请求
+            ec = co_await async_send_request(url_view, req);
+            if (ec)
+                co_return ec;
+
+            // 读取响应
+            auto result = co_await async_read_response();
             if (!result)
                 co_return result.error();
 
