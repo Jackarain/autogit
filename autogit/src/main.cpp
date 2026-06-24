@@ -498,7 +498,8 @@ static void log_head_commit_info(gitpp::repo& repo)
     }
 }
 
-net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir)
+net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir,
+    net::cancellation_slot cancel_slot)
 {
     auto executor = co_await net::this_coro::executor;
 
@@ -531,23 +532,46 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
                 LOG_ERR << "gitwork, exception: " << e.what();
             }
 
-            auto result = co_await monitor.async_wait(net::use_awaitable);
-            for (const auto& file : result)
             {
-                std::ostringstream oss;
-                oss << "CHG: " << (int)file.type_ << ", FILE: " << file.path_;
-                if (!file.new_path_.empty())
-                    oss << " -> " << file.new_path_;
-                LOG_DBG << oss.str();
+                boost::system::error_code ec;
+                auto result = co_await monitor.async_wait(
+                    net::bind_cancellation_slot(cancel_slot,
+                        net::redirect_error(net::use_awaitable, ec)));
+
+                if (ec == boost::asio::error::operation_aborted)
+                {
+                    LOG_DBG << "git_work_loop cancelled normally";
+                    break;
+                }
+
+                for (const auto& file : result)
+                {
+                    std::ostringstream oss;
+                    oss << "CHG: " << (int)file.type_ << ", FILE: " << file.path_;
+                    if (!file.new_path_.empty())
+                        oss << " -> " << file.new_path_;
+                    LOG_DBG << oss.str();
+                }
             }
 
             if (check_interval > 0)
             {
+                boost::system::error_code ec;
                 net::steady_timer timer(executor);
                 timer.expires_after(std::chrono::seconds(check_interval));
-                co_await timer.async_wait(net::use_awaitable);
+                co_await timer.async_wait(
+                    net::bind_cancellation_slot(cancel_slot,
+                        net::redirect_error(net::use_awaitable, ec)));
+
+                if (ec == boost::asio::error::operation_aborted)
+                {
+                    LOG_DBG << "git_work_loop cancelled normally";
+                    break;
+                }
             }
         }
+
+        LOG_DBG << "git_work_loop exited normally";
     }
     catch (std::exception& e)
     {
@@ -682,13 +706,15 @@ net::awaitable<int> co_main(int argc, char** argv)
 
     LOG_DBG << "Running...";
 
-    using namespace net::experimental::awaitable_operators;
+    net::cancellation_signal cancel_signal;
 
-    // 处理中止信号.
-    co_await(
-        git_work_loop(check_interval, git_dir)
-            || terminator_signal.async_wait(net::use_awaitable)
-    );
+    // 当接收到终止信号时，触发取消操作，让 git_work_loop 正常退出。
+    terminator_signal.async_wait([&cancel_signal](boost::system::error_code ec, int) {
+        if (!ec)
+            cancel_signal.emit(net::cancellation_type::terminal);
+    });
+
+    co_await git_work_loop(check_interval, git_dir, cancel_signal.slot());
 
     terminator_signal.clear();
 
