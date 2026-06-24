@@ -52,6 +52,15 @@ namespace httpc {
     using http_result = result<http_response>;
     using verb = http::verb;
 
+    // 自定义 fclose 删除器, 避免 decltype(&std::fclose) 带来的属性警告.
+    struct fclose_deleter
+    {
+        void operator()(FILE* f) const noexcept
+        {
+            std::fclose(f);
+        }
+    };
+
     class http_client
     {
         using transfer_handler = std::function<void(const void*, std::size_t)>;
@@ -183,8 +192,8 @@ namespace httpc {
         transfer_handler transfer_handler_;
 
         // 下载文件句柄 (RAII).
-        std::unique_ptr<FILE, decltype(&std::fclose)> download_file_{
-            nullptr, &std::fclose};
+        std::unique_ptr<FILE, fclose_deleter> download_file_{
+            nullptr};
 
         // 证书验证开关.
         bool check_certificate_{false};
