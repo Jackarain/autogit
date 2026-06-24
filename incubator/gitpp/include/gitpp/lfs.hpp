@@ -15,18 +15,11 @@
 
 #include <git2.h>
 
-#include <array>
-#include <chrono>
 #include <cstdint>
-#include <cstdio>
 #include <filesystem>
-#include <fstream>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <system_error>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace gitpp {
@@ -77,6 +70,12 @@ struct pointer {
         std::string_view text) noexcept;
     GITPP_NODISCARD static bool is_pointer_file(
         const std::filesystem::path& path);
+
+    // 将指针写入文件
+    GITPP_NODISCARD bool write_to(const std::filesystem::path& dest) const;
+    // 从文件读取指针
+    GITPP_NODISCARD static std::optional<pointer> read_from(
+        const std::filesystem::path& path);
 };
 
 // ---------------------------------------------------------------------------
@@ -87,12 +86,18 @@ class object_store {
 public:
     explicit object_store(std::filesystem::path gitdir);
 
+    // 将文件复制到 LFS 对象存储（自动计算 SHA-256）。
     GITPP_NODISCARD std::optional<pointer> store(
         const std::filesystem::path& file_path);
 
-    // 将已缓冲的数据写入 LFS 对象存储（由 filter stream 使用）。
-    // `tmp_path` 是包含原始内容的临时文件的路径。
-    // 该函数计算文件的 SHA-256，将其移动到正确的路径，并返回指针。
+    // 使用已计算的 OID 和大小，将文件复制到 LFS 对象存储。
+    GITPP_NODISCARD std::optional<pointer> store(
+        const std::string& oid,
+        std::int64_t size,
+        const std::filesystem::path& file_path);
+
+    // 将临时文件作为 LFS 对象存储（计算 SHA-256 后重命名）。
+    // 由 filter stream 的 close 回调使用。
     GITPP_NODISCARD std::optional<pointer> store_temp(
         const std::filesystem::path& tmp_path);
 
@@ -123,17 +128,6 @@ GITPP_NODISCARD bool is_lfs_tracked(
     std::string_view path,
     git_repository* repo,
     const std::filesystem::path& gitdir);
-
-// ---------------------------------------------------------------------------
-// 指针文件 I/O
-// ---------------------------------------------------------------------------
-
-bool write_pointer_file(
-    const std::filesystem::path& dest,
-    const pointer& ptr);
-
-GITPP_NODISCARD std::optional<pointer> read_pointer_file(
-    const std::filesystem::path& path);
 
 // ---------------------------------------------------------------------------
 // 基于 git_filter_register 的 LFS 过滤器
@@ -182,15 +176,7 @@ struct lfs_object {
     bool exists = false;
 };
 
-// 要推送的 LFS 对象的上传结果。
-struct lfs_push_result {
-    std::string oid;
-    bool success = false;
-    std::string error_msg;
-};
-
-// 收集自从指定引用（如 "refs/heads/master"）的最近提交之后
-// 所有新引用的 LFS 对象。
+// 扫描 .git/lfs/objects/ 目录，收集所有本地 LFS 对象。
 GITPP_NODISCARD std::vector<lfs_object> collect_new_lfs_objects(
     const std::filesystem::path& gitdir);
 

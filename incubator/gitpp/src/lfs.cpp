@@ -12,7 +12,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <memory>
+#include <random>
 #include <sstream>
+#include <unordered_set>
 #include <vector>
 
 #ifdef _WIN32
@@ -296,25 +299,20 @@ std::optional<pointer> pointer::create_from_file(
     const std::filesystem::path& file_path,
     const std::filesystem::path& gitdir)
 {
-    // 计算文件的 SHA-256。
-    std::string oid_hex = file_sha256(file_path);
+    auto oid_hex = file_sha256(file_path);
     if (oid_hex.empty())
         return std::nullopt;
 
-    // 获取文件大小。
     auto sz = get_file_size(file_path);
     if (sz < 0)
         return std::nullopt;
 
-    pointer ptr(oid_hex, sz);
-
-    // 将对象存储到 .git/lfs/objects/ 中。
     object_store store(gitdir);
-    auto stored = store.store(file_path);
+    auto stored = store.store(oid_hex, sz, file_path);
     if (!stored)
         return std::nullopt;
 
-    return ptr;
+    return pointer(oid_hex, sz);
 }
 
 bool pointer::is_pointer(std::string_view text) noexcept {
@@ -357,26 +355,29 @@ std::optional<pointer> object_store::store(
     if (sz < 0)
         return std::nullopt;
 
-    auto dest = object_path(oid_hex);
+    return store(oid_hex, sz, file_path);
+}
 
-    // 创建父目录。
+std::optional<pointer> object_store::store(
+    const std::string& oid,
+    std::int64_t size,
+    const std::filesystem::path& file_path)
+{
+    auto dest = object_path(oid);
+
     std::error_code ec;
     std::filesystem::create_directories(dest.parent_path(), ec);
     if (ec)
         return std::nullopt;
 
-    // 如果对象已存在，则完成。
-    if (std::filesystem::exists(dest, ec))
-        return pointer(oid_hex, sz);
+    if (!std::filesystem::exists(dest, ec)) {
+        std::filesystem::copy_file(file_path, dest,
+            std::filesystem::copy_options::none, ec);
+        if (ec)
+            return std::nullopt;
+    }
 
-    // 将文件内容复制到 LFS 对象存储。
-    std::error_code copy_ec;
-    std::filesystem::copy_file(file_path, dest,
-        std::filesystem::copy_options::none, copy_ec);
-    if (copy_ec)
-        return std::nullopt;
-
-    return pointer(oid_hex, sz);
+    return pointer(oid, size);
 }
 
 std::optional<pointer> object_store::store_temp(
@@ -437,7 +438,7 @@ namespace {
 // 解析单行 .gitattributes，查找 "filter=lfs"。
 // 如果该行包含 filter=lfs，则返回模式部分。
 // 以 # 开头的行是注释。会修剪前导/尾随空白。
-static std::optional<std::string> parse_lfs_attribute_line(
+std::optional<std::string> parse_lfs_attribute_line(
     std::string_view line)
 {
     // 修剪空白。
@@ -672,21 +673,21 @@ bool is_lfs_tracked(std::string_view path,
 }
 
 // ============================================================================
-// 指针文件 I/O（pointer file I/O）
+// ============================================================================
+// pointer::write_to / read_from
 // ============================================================================
 
-bool write_pointer_file(const std::filesystem::path& dest,
-                        const pointer& ptr)
+bool pointer::write_to(const std::filesystem::path& dest) const
 {
     std::ofstream file(dest, std::ios::binary | std::ios::trunc);
     if (!file)
         return false;
-    auto content = ptr.encode();
+    auto content = encode();
     file.write(content.data(), content.size());
     return file.good();
 }
 
-std::optional<pointer> read_pointer_file(
+std::optional<pointer> pointer::read_from(
     const std::filesystem::path& path)
 {
     std::ifstream file(path, std::ios::binary);
@@ -704,7 +705,7 @@ std::optional<pointer> read_pointer_file(
     if (!file.good())
         return std::nullopt;
 
-    return pointer::decode(content);
+    return decode(content);
 }
 
 // ============================================================================
@@ -718,28 +719,28 @@ struct filter_global_data {
     std::string gitdir;
 };
 
-filter_global_data* g_filter_data = nullptr;
+static std::unique_ptr<filter_global_data> g_filter_data;
 
 // ---------------------------------------------------------------------------
 // 自定义 git_writestream —— 处理 LFS clean/smudge 的流式转换
 // ---------------------------------------------------------------------------
 
 // 在 .git/lfs/tmp/ 下生成唯一的临时文件名。
-static std::filesystem::path make_tmp_path(
+std::filesystem::path make_tmp_path(
     const std::filesystem::path& gitdir)
 {
     auto tmp_dir = gitdir / k_lfs_tmp_dir;
     std::error_code ec;
     std::filesystem::create_directories(tmp_dir, ec);
 
-    // 使用时间戳和 PID 生成唯一名称。
+    // 使用随机数和 PID 生成唯一名称。
+    std::random_device rd;
 #ifdef _WIN32
     auto pid = static_cast<long>(::_getpid());
 #else
     auto pid = static_cast<long>(::getpid());
 #endif
-    auto now = std::chrono::steady_clock::now().time_since_epoch().count();
-    auto name = "lfs-tmp-" + std::to_string(now) + "-" + std::to_string(pid);
+    auto name = "lfs-tmp-" + std::to_string(rd()) + "-" + std::to_string(pid);
 
     return tmp_dir / name;
 }
@@ -1035,31 +1036,27 @@ int write_lfs_attributes(
 int register_lfs_filter(const std::filesystem::path& gitdir)
 {
     if (g_filter_data) {
-        // 已注册。
         return 0;
     }
 
-    // 分配全局数据。
-    g_filter_data = new filter_global_data();
-    g_filter_data->gitdir = gitdir.string();
+    auto data = std::make_unique<filter_global_data>();
+    data->gitdir = gitdir.string();
 
-    // 注册过滤器。
     int ret = git_filter_register(
         "lfs", &g_lfs_filter, GIT_FILTER_DRIVER_PRIORITY);
     if (ret < 0) {
-        delete g_filter_data;
-        g_filter_data = nullptr;
+        return ret;
     }
 
-    return ret;
+    g_filter_data = std::move(data);
+    return 0;
 }
 
 void unregister_lfs_filter()
 {
     if (g_filter_data) {
         git_filter_unregister("lfs");
-        delete g_filter_data;
-        g_filter_data = nullptr;
+        g_filter_data.reset();
     }
 }
 
