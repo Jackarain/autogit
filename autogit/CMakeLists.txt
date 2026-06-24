@@ -43,6 +43,7 @@ target_link_libraries(autogit
 	Boost::asio
 	Boost::bimap
 	gitpp
+	httpc
 )
 
 if (APPLE)
