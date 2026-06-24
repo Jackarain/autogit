@@ -1184,6 +1184,12 @@ int push_lfs_objects_http(
     batch_req.body() = json_body;
     batch_req.prepare_payload();
 
+    std::string response_body;
+    client.set_transfer_handler([&](auto data, auto size) mutable
+    {
+        response_body.append((const char*)data, size);
+    });
+
     // 通过协程异步执行，使用 use_future 同步等待结果。
     auto batch_future = boost::asio::co_spawn(ioc,
         client.async_perform(batch_url, batch_req),
@@ -1216,10 +1222,6 @@ int push_lfs_objects_http(
         return -1;
     }
 
-    // 获取响应体字符串。
-    std::string response_body =
-        boost::beast::buffers_to_string(response.body().data());
-
     std::fprintf(stderr, "LFS: batch request succeeded, processing upload URLs...\n");
 
     // 使用 boost.json 解析响应.
@@ -1228,7 +1230,6 @@ int push_lfs_objects_http(
         jv = json::parse(response_body);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "LFS: failed to parse batch response JSON: %s\n", e.what());
-        std::fprintf(stderr, "LFS: batch response JSON: %s\n", response_body.c_str());
         return -1;
     }
 
