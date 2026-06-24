@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -1118,13 +1119,16 @@ int push_lfs_objects_http(
     const std::filesystem::path& gitdir,
     const std::string& auth_header)
 {
-    if (lfs_push_url.empty())
+    if (lfs_push_url.empty()) {
+        std::fprintf(stderr, "LFS: push URL is empty, aborting.\n");
         return -1;
+    }
 
     // 收集所有本地 LFS 对象。
     auto objects = collect_new_lfs_objects(gitdir);
+    std::fprintf(stderr, "LFS: found %zu object(s) to push.\n", objects.size());
     if (objects.empty()) {
-        // 没有要推送的内容。
+        std::fprintf(stderr, "LFS: no objects to push.\n");
         return 0;
     }
 
@@ -1149,6 +1153,7 @@ int push_lfs_objects_http(
     while (!base_url.empty() && base_url.back() == '/')
         base_url.pop_back();
     std::string batch_url = base_url + "/objects/batch";
+    std::fprintf(stderr, "LFS: batch URL: %s\n", batch_url.c_str());
 
     // 使用 httpc 发送批量 API 请求（POST）。
     boost::asio::io_context ioc;
@@ -1179,26 +1184,42 @@ int push_lfs_objects_http(
     boost::system::result<httpc::http_response> batch_result;
     try {
         batch_result = batch_future.get();
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "LFS: batch request exception: %s\n", e.what());
+        return -1;
     } catch (...) {
+        std::fprintf(stderr, "LFS: batch request unknown exception.\n");
         return -1;
     }
 
-    if (!batch_result)
+    if (!batch_result) {
+        std::fprintf(stderr, "LFS: batch request failed (error code %d).\n",
+            batch_result.error().value());
         return -1;
+    }
 
     auto& response = *batch_result;
-    if (response.result() != httpc::http::status::ok)
+    auto http_status = response.result_int();
+    std::fprintf(stderr, "LFS: batch response status: %d\n", http_status);
+    if (http_status != 200) {
+        std::string resp_body = boost::beast::buffers_to_string(response.body().data());
+        std::fprintf(stderr, "LFS: batch response body: %s\n", resp_body.c_str());
         return -1;
+    }
 
     // 获取响应体字符串。
     std::string response_body =
         boost::beast::buffers_to_string(response.body().data());
+
+    std::fprintf(stderr, "LFS: batch request succeeded, processing upload URLs...\n");
 
     // 简单解析 JSON 响应以获取上传 URL。
     // 查找 "upload": 和 "href":
     // 对于每个返回的对象，使用 httpc 上传。
     size_t obj_pos = 0;
     int error_count = 0;
+    int upload_count = 0;
+    int success_count = 0;
 
     while ((obj_pos = response_body.find("\"upload\"", obj_pos)) !=
            std::string::npos) {
@@ -1255,6 +1276,10 @@ int push_lfs_objects_http(
 
             std::error_code ec;
             if (std::filesystem::exists(obj_path, ec)) {
+                ++upload_count;
+                std::fprintf(stderr, "LFS: uploading object [%d/%zu] oid=%s...\n",
+                    upload_count, objects.size(), oid.c_str());
+
                 // 使用 httpc 流式上传文件（PUT）。
                 ioc.restart();
                 httpc::http_request upload_req;
@@ -1271,28 +1296,50 @@ int push_lfs_objects_http(
                 boost::system::result<httpc::http_response> upload_result;
                 try {
                     upload_result = upload_future.get();
+                } catch (const std::exception& e) {
+                    std::fprintf(stderr, "LFS: upload exception for oid=%s: %s\n",
+                        oid.c_str(), e.what());
+                    ++error_count;
+                    obj_pos = href_pos + 1;
+                    continue;
                 } catch (...) {
+                    std::fprintf(stderr, "LFS: upload unknown exception for oid=%s\n",
+                        oid.c_str());
                     ++error_count;
                     obj_pos = href_pos + 1;
                     continue;
                 }
 
-                if (!upload_result)
+                if (!upload_result) {
+                    std::fprintf(stderr, "LFS: upload failed for oid=%s (error code %d).\n",
+                        oid.c_str(), upload_result.error().value());
                     ++error_count;
-                else {
+                } else {
                     auto status = upload_result->result_int();
-                    if (status >= 200 && status < 300)
-                        ; // 上传成功
-                    else
+                    if (status >= 200 && status < 300) {
+                        std::fprintf(stderr, "LFS: upload succeeded for oid=%s (status=%d).\n",
+                            oid.c_str(), status);
+                        ++success_count;
+                    } else {
+                        std::fprintf(stderr, "LFS: upload failed for oid=%s (status=%d).\n",
+                            oid.c_str(), status);
                         ++error_count;
+                    }
                 }
             } else {
+                std::fprintf(stderr, "LFS: local object file not found for oid=%s.\n",
+                    oid.c_str());
                 ++error_count;
             }
+        } else {
+            std::fprintf(stderr, "LFS: could not extract OID from batch response.\n");
         }
 
         obj_pos = href_pos + 1;
     }
+
+    std::fprintf(stderr, "LFS: push completed: %d success(es), %d error(s).\n",
+        success_count, error_count);
 
     return (error_count == 0) ? 0 : -1;
 }
