@@ -93,6 +93,27 @@ namespace httpc {
         net::awaitable<http_result> async_perform(
             const std::string& url, const http_request& req);
 
+        // 异步上传文件到服务器.
+        // 使用 http::file_body 流式上传, 支持重定向.
+        //
+        // 使用示例:
+        //
+        //  http_client client(co_await net::this_coro::executor);
+        //  http_request req;
+        //  req.method(httpc::verb::put);
+        //  req.set(httpc::http::field::authorization, "Bearer xxx");
+        //  auto result = co_await client.async_upload_file(
+        //      "https://example.com/upload",
+        //      "/path/to/large_file.iso",
+        //      req);
+        //  if (result)
+        //      auto& resp = *result;    // http_response
+        //
+        net::awaitable<http_result> async_upload_file(
+            const std::string& url,
+            const std::string& file_path,
+            const http_request& req);
+
         // ------------------------------------------------------------
         // 以下接口为手工精细控制.
 
