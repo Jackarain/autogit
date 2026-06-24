@@ -1228,6 +1228,7 @@ int push_lfs_objects_http(
         jv = json::parse(response_body);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "LFS: failed to parse batch response JSON: %s\n", e.what());
+        std::fprintf(stderr, "LFS: batch response JSON: %s\n", response_body.c_str());
         return -1;
     }
 
