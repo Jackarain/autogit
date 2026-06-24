@@ -1294,8 +1294,9 @@ int push_lfs_objects_http(
             upload_req.set(httpc::http::field::content_type,
                            "application/octet-stream");
 
+            auto tmp_path = obj_path.string();
             auto upload_future = boost::asio::co_spawn(ioc,
-                client.async_upload_file(upload_url, obj_path.string(),
+                client.async_upload_file(upload_url, tmp_path,
                     upload_req),
                 boost::asio::use_future);
             ioc.run();
