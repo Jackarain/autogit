@@ -32,6 +32,13 @@
 - 自动配置远程仓库地址
 - 支持空仓库首次提交（Initial Commit）
 
+### 📦 Git LFS 大文件存储
+- **原生 LFS 指针文件支持**: 自动识别 `.gitattributes` 中配置为 `filter=lfs` 的文件模式
+- **自动 Clean/Smudge 过滤**: 基于 libgit2 的 `git_filter` 机制，暂存时自动将大文件替换为指针文件，检出时自动还原
+- **多方式 LFS 模式配置**: 支持通过 `.gitattributes` 和命令行 `--lfs_pattern` 参数指定 LFS 文件匹配模式（glob 通配符）
+- **HTTP Batch API 推送**: 通过 LFS 批量 API 直接上传 LFS 对象到远程服务器
+- **灵活的推送 URL**: 支持通过 `--lfs_push_url` 指定独立的 LFS 对象推送地址，默认从仓库远程 URL 推导
+
 ### ⚙️ 灵活配置
 - 支持命令行参数和配置文件（`autogit.conf`）两种方式
 - 自定义提交信息
@@ -134,6 +141,9 @@ docker run -d \
 | `--ssh_passphrase` | — | SSH 密钥密码短语 |
 | `--quiet` | `false` | 静默模式 |
 | `--log_dir` | — | 日志文件目录 |
+| `--lfs` | `false` | 启用 Git LFS 支持，匹配 `.gitattributes` 中 LFS 模式的文件将以指针文件存储 |
+| `--lfs_pattern` | — | 额外的 LFS 文件匹配模式（glob），例如 `--lfs_pattern '*.psd' --lfs_pattern '*.zip'` |
+| `--lfs_push_url` | — | LFS 对象推送 URL，覆盖 `.lfsconfig` 中的设置；为空时使用仓库远程 origin URL |
 
 ---
 
@@ -146,6 +156,7 @@ autogit 基于以下核心技术构建：
 - **Boost 库栈** — Asio（网络 & 异步）、Filesystem（文件系统）、Program Options（参数解析）
 - **watchman 模块** — 跨平台文件系统事件监控抽象层
 - **gitpp** — 基于 libgit2 的现代 C++ RAII 封装库（位于 `incubator/gitpp/`）
+- **httpc** — 基于 Boost.Beast 和 Boost.Asio 的 C++20 协程 HTTP 客户端库（位于 `incubator/httpc/`），支持 SSL、连接复用和流式请求/响应
 
 ---
 

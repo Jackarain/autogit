@@ -32,6 +32,13 @@
 - Automatically configures remote URL
 - Supports initial commit for empty repositories
 
+### 📦 Git LFS Support
+- **Native LFS Pointer Support**: Automatically detects patterns configured as `filter=lfs` in `.gitattributes`
+- **Automatic Clean/Smudge Filtering**: Uses libgit2's `git_filter` mechanism — automatically replaces large files with pointer files on staging and restores them on checkout
+- **Flexible Pattern Configuration**: Supports LFS file patterns via `.gitattributes` and command-line `--lfs_pattern` (glob wildcards)
+- **HTTP Batch API Upload**: Pushes LFS objects directly to remote servers via LFS Batch API
+- **Configurable Push URL**: Supports a dedicated LFS push URL via `--lfs_push_url`, defaults to the repository remote origin URL
+
 ### ⚙️ Flexible Configuration
 - Command-line arguments and configuration file (`autogit.conf`) support
 - Custom commit messages
@@ -134,6 +141,9 @@ docker run -d \
 | `--ssh_passphrase` | — | SSH key passphrase |
 | `--quiet` | `false` | Quiet mode (suppress logging) |
 | `--log_dir` | — | Log file directory |
+| `--lfs` | `false` | Enable Git LFS support; files matching LFS patterns in `.gitattributes` will be stored as pointers |
+| `--lfs_pattern` | — | Additional LFS file patterns (glob), e.g. `--lfs_pattern '*.psd' --lfs_pattern '*.zip'` |
+| `--lfs_push_url` | — | LFS remote URL for pushing objects; overrides `.lfsconfig`; falls back to repository remote origin URL |
 
 ---
 
@@ -146,6 +156,7 @@ autogit is built on the following core technologies:
 - **Boost Libraries** — Asio (networking & async), Filesystem (file system), Program Options (argument parsing)
 - **watchman Module** — Cross-platform file system event monitoring abstraction layer
 - **gitpp** — Modern C++ RAII wrapper around libgit2 (located in `incubator/gitpp/`)
+- **httpc** — C++20 coroutine-based HTTP client library built on Boost.Beast and Boost.Asio (located in `incubator/httpc/`), with SSL support, connection reuse, and streaming request/response
 
 ---
 

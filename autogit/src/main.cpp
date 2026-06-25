@@ -430,8 +430,7 @@ static int write_tree_and_commit(
  * @brief 推送 Git LFS 对象到远程服务器。
  *
  * 如果启用了 LFS，首先尝试通过 HTTP Batch API 推送 LFS 对象，
- * 失败时回退到调用系统 git-lfs 命令行工具。
- * 推送 URL 优先使用 --lfs_push_url 参数，否则从 remote.origin.url 推导。
+ * 推送 URL 使用 --lfs_push_url 参数
  *
  * @param repo  Git 仓库对象。
  */
