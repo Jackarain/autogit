@@ -1116,21 +1116,19 @@ std::vector<lfs_object> collect_new_lfs_objects(
 // LFS HTTP 推送 — 使用 httpc 库
 // ============================================================================
 
-std::string push_lfs_objects_http(
+std::optional<std::string> push_lfs_objects_http(
     const std::string& lfs_push_url,
     const std::filesystem::path& gitdir,
     const std::string& auth_header)
 {
-    std::string ret = gitdir.string();
-
     if (lfs_push_url.empty()) {
-        return ret;
+        return "lfs_push_url.empty()";
     }
 
     // 收集所有本地 LFS 对象。
     auto objects = collect_new_lfs_objects(gitdir);
     if (objects.empty()) {
-        return ret;
+        return "objects.empty()";
     }
 
     // 构建 LFS 批量 API 请求的 JSON (使用 boost.json).
@@ -1200,13 +1198,13 @@ std::string push_lfs_objects_http(
     ioc.run();
 
     if (!batch_result) {
-        return ret;
+        return "!batch_result";
     }
 
     auto& response = *batch_result;
     auto http_status = response.result_int();
     if (http_status != 200) {
-        return ret;
+        return "http_status != 200";
     }
 
     // 使用 boost.json 解析响应.
@@ -1214,18 +1212,19 @@ std::string push_lfs_objects_http(
     try {
         jv = json::parse(response_body);
     } catch (const std::exception& e) {
-        return ret;
+        return std::string("json exception: ") + e.what();
     }
 
     auto& resp_obj = jv.as_object();
     if (!resp_obj.contains("objects")) {
-        return ret;
+        return "!resp_obj.contains(\"objects\")";
     }
 
     auto& resp_objects = resp_obj["objects"].as_array();
     int error_count = 0;
     int upload_count = 0;
     int success_count = 0;
+    std::string fail_file;
 
     for (auto& elem : resp_objects) {
         auto& obj = elem.as_object();
@@ -1274,10 +1273,10 @@ std::string push_lfs_objects_http(
         ioc.restart();
 
         httpc::http_result upload_result;
-        ret = obj_path.string();
+        auto obj_path_str = obj_path.string();
 
         boost::asio::co_spawn(ioc,
-            [&, obj_path_str = ret]() mutable -> boost::asio::awaitable<void> {
+            [&]() mutable -> boost::asio::awaitable<void> {
                 httpc::http_client client(ioc.get_executor());
                 client.timeout(std::chrono::seconds(120));
                 client.connect_timeout(std::chrono::seconds(30));
@@ -1298,17 +1297,23 @@ std::string push_lfs_objects_http(
 
         if (!upload_result) {
             ++error_count;
+            fail_file = obj_path_str;
         } else {
             auto status = upload_result->result_int();
             if (status >= 200 && status < 300) {
                 ++success_count;
+                fail_file.clear();
             } else {
                 ++error_count;
+                fail_file = obj_path_str;
             }
         }
     }
 
-    return ret;
+    if (!fail_file.empty())
+        return fail_file;
+
+    return {};
 }
 
 } // namespace lfs

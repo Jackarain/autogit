@@ -463,13 +463,13 @@ static void push_lfs_objects(gitpp::repo& repo)
     auto lfs_ret = gitpp::lfs::push_lfs_objects_http(
         lfs_url, repo.path());
 
-    if (lfs_ret.empty())
+    if (!lfs_ret)
     {
         LOG_DBG << "LFS objects pushed successfully via HTTP batch API.";
         return;
     }
 
-    LOG_DBG << "LFS HTTP push failed: " << lfs_ret;
+    LOG_DBG << "LFS HTTP push failed: " << *lfs_ret;
 }
 
 /**

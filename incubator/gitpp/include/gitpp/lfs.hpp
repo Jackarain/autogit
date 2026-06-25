@@ -183,7 +183,8 @@ GITPP_NODISCARD std::vector<lfs_object> collect_new_lfs_objects(
 // 通过 LFS 批量 API 将对象推送到远程服务器。
 // `lfs_push_url` 是 LFS 服务器的 URL（类似 https://lfs-server.com）。
 // 成功时返回空串，失败时返回失败的文件名。
-GITPP_NODISCARD std::string push_lfs_objects_http(
+
+GITPP_NODISCARD std::optional<std::string> push_lfs_objects_http(
     const std::string& lfs_push_url,
     const std::filesystem::path& gitdir,
     const std::string& auth_header = {});
