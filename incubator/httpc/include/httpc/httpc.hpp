@@ -153,6 +153,13 @@ namespace httpc {
         // 读取完整响应 (处理下载文件/传输回调).
         net::awaitable<http_result> async_read_response();
 
+        // 写入 HTTP chunk (有数据时用 chunk_body, 空 buffer 时写入终止 chunk_last).
+        net::awaitable<boost::system::error_code> async_write_chunk(
+            net::const_buffer buffer);
+
+        // 设置当前流的超时.
+        void set_stream_timeout();
+
         // 关闭当前连接.
         void close();
 
@@ -187,10 +194,6 @@ namespace httpc {
 
         // 获取执行器.
         net::any_io_executor get_executor() noexcept;
-
-    private:
-        // 辅助: 设置当前流的超时.
-        void set_stream_timeout();
 
     private:
         // 执行器.

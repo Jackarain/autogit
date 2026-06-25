@@ -579,17 +579,8 @@ namespace httpc {
                     set_stream_timeout();
 
                     // 写入 chunk
-                    auto chunk = http::chunk_body(
+                    ec = co_await async_write_chunk(
                         net::buffer(buf, static_cast<std::size_t>(n)));
-                    auto write_visitor =
-                        [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
-                    {
-                        boost::system::error_code ec;
-                        co_await net::async_write(*stream_ptr, chunk,
-                            net::redirect_error(ec));
-                        co_return ec;
-                    };
-                    ec = co_await boost::variant2::visit(write_visitor, stream_socket_);
                     if (ec)
                         co_return ec;
                 }
@@ -597,34 +588,14 @@ namespace httpc {
                 set_stream_timeout();
 
                 // 写入 final chunk (0\r\n\r\n)
-                {
-                    http::chunk_last last_chunk;
-                    auto write_visitor =
-                        [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
-                    {
-                        boost::system::error_code ec;
-                        co_await net::async_write(*stream_ptr, last_chunk,
-                            net::redirect_error(ec));
-                        co_return ec;
-                    };
-                    ec = co_await boost::variant2::visit(write_visitor, stream_socket_);
-                }
+                ec = co_await async_write_chunk(net::const_buffer{});
                 if (ec)
                     co_return ec;
             }
             else
             {
                 // 没有设置 transfer_handler, 发送空 chunked body
-                http::chunk_last last_chunk;
-                auto write_visitor =
-                    [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
-                {
-                    boost::system::error_code ec;
-                    co_await net::async_write(*stream_ptr, last_chunk,
-                        net::redirect_error(ec));
-                    co_return ec;
-                };
-                ec = co_await boost::variant2::visit(write_visitor, stream_socket_);
+                ec = co_await async_write_chunk(net::const_buffer{});
                 if (ec)
                     co_return ec;
             }
@@ -636,7 +607,7 @@ namespace httpc {
     }
 
     // -----------------------------------------------------------------------
-    // 辅助: 设置超时 / 关闭连接
+    // 设置超时 / 关闭连接
     // -----------------------------------------------------------------------
 
     void http_client::set_stream_timeout()
@@ -650,6 +621,30 @@ namespace httpc {
                 stream_ptr->expires_after(timeout_);
         };
         boost::variant2::visit(visitor, stream_socket_);
+    }
+
+    net::awaitable<boost::system::error_code> http_client::async_write_chunk(
+        net::const_buffer buffer)
+    {
+        auto write_visitor =
+            [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
+        {
+            boost::system::error_code ec;
+            if (buffer.size() > 0)
+            {
+                auto chunk = http::chunk_body(buffer);
+                co_await net::async_write(*stream_ptr, chunk,
+                    net::redirect_error(ec));
+            }
+            else
+            {
+                http::chunk_last last_chunk;
+                co_await net::async_write(*stream_ptr, last_chunk,
+                    net::redirect_error(ec));
+            }
+            co_return ec;
+        };
+        co_return co_await boost::variant2::visit(write_visitor, stream_socket_);
     }
 
     void http_client::close()
