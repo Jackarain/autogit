@@ -100,7 +100,7 @@ namespace httpc {
         //      auto& resp = *result;    // http_response
         //
         net::awaitable<http_result> async_perform(
-            const std::string& url, const http_request& req);
+            const std::string& url, const http_request& req) noexcept;
 
         // 异步上传文件到服务器.
         // 使用 http::file_body 流式上传, 支持重定向.
@@ -121,7 +121,7 @@ namespace httpc {
         net::awaitable<http_result> async_upload_file(
             const std::string& url,
             const std::string& file_path,
-            const http_request& req = http_request{});
+            const http_request& req = http_request{}) noexcept;
 
         // ------------------------------------------------------------
         // 以下接口为手工精细控制.

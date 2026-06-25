@@ -353,7 +353,7 @@ namespace httpc {
     // -----------------------------------------------------------------------
 
     net::awaitable<http_result> http_client::async_perform(
-        const std::string& url, const http_request& req)
+        const std::string& url, const http_request& req) noexcept
     {
         boost::system::error_code ec;
         std::string current_url = url;
@@ -421,7 +421,7 @@ namespace httpc {
     net::awaitable<http_result> http_client::async_upload_file(
         const std::string& url,
         const std::string& file_path,
-        const http_request& req)
+        const http_request& req) noexcept
     {
         boost::system::error_code ec;
         std::string current_url = url;
