@@ -63,7 +63,7 @@ namespace httpc {
 
     class http_client
     {
-        using transfer_handler = std::function<void(const void*, std::size_t)>;
+        using transfer_handler = std::function<int(const void*, std::size_t)>;
 
     public:
         using ssl_stream = beast::ssl_stream<beast::tcp_stream>;
@@ -91,6 +91,7 @@ namespace httpc {
         //  client.set_transfer_handler([](auto data, auto size)
         //  {
         //    std::cout.write((const char*)data, size);
+        //    return 0;
         //  });
         //  http_request req;
         //  req.method(httpc::verb::get);

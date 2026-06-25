@@ -1177,6 +1177,7 @@ int push_lfs_objects_http(
 
             client.set_transfer_handler([&](auto data, auto size) mutable {
                 response_body.append((const char*)data, size);
+                return 0;
             });
 
             httpc::http_request batch_req;
