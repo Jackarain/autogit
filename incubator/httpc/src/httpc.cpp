@@ -567,6 +567,241 @@ namespace httpc {
     }
 
     // -----------------------------------------------------------------------
+    // async_upload_stream
+    // -----------------------------------------------------------------------
+
+    net::awaitable<http_result> http_client::async_upload_stream(
+        const std::string& url,
+        const http_request& req) noexcept
+    {
+        boost::system::error_code ec;
+        std::string current_url = url;
+        int redirect_count = 0;
+
+        while (true)
+        {
+            // 解析 URL
+            auto url_result = urls::parse_uri_reference(current_url);
+            if (!url_result)
+                co_return url_result.error();
+            auto url_view = *url_result;
+
+            // 连接
+            ec = co_await async_connect(url_view);
+            if (ec)
+                co_return ec;
+
+            // 构造请求 (使用 empty_body, 手动写入 chunked body)
+            http::request<http::empty_body> stream_req{
+                req.method(), req.target(), req.version()};
+
+            // 设置请求目标 (path + query)
+            {
+                std::string target(url_view.encoded_path());
+                if (url_view.has_query())
+                {
+                    target += '?';
+                    target.append(url_view.encoded_query().data(),
+                                  url_view.encoded_query().size());
+                }
+                if (target.empty())
+                    target = "/";
+                stream_req.target(target);
+            }
+
+            // 设置 Host 头
+            if (req.find(http::field::host) == req.end())
+            {
+                std::string host_value(url_view.host());
+                if (url_view.has_port())
+                {
+                    host_value += ':';
+                    host_value.append(url_view.port().data(),
+                                      url_view.port().size());
+                }
+                else
+                {
+                    auto port = url_view.port_number();
+                    if ((url_view.scheme_id() == urls::scheme::https && port != 443) ||
+                        (url_view.scheme_id() != urls::scheme::https && port != 80))
+                    {
+                        host_value += ':';
+                        host_value += std::to_string(port);
+                    }
+                }
+                stream_req.set(http::field::host, host_value);
+            }
+            else
+            {
+                stream_req.set(http::field::host,
+                    req.find(http::field::host)->value());
+            }
+
+            // 设置 User-Agent (如果未设置)
+            if (req.find(http::field::user_agent) == req.end())
+                stream_req.set(http::field::user_agent, default_user_agent);
+            else
+                stream_req.set(http::field::user_agent,
+                    req.find(http::field::user_agent)->value());
+
+            // 设置 Connection 头
+            if (req.find(http::field::connection) == req.end())
+                stream_req.keep_alive(false);
+            else
+                stream_req.set(http::field::connection,
+                    req.find(http::field::connection)->value());
+
+            // 拷贝用户自定义请求头 (排除已处理字段).
+            for (auto const& h : req)
+            {
+                if (h.name() != http::field::host &&
+                    h.name() != http::field::user_agent &&
+                    h.name() != http::field::connection)
+                {
+                    stream_req.set(h.name_string(), h.value());
+                }
+            }
+
+            // 设置 chunked 传输编码
+            stream_req.chunked(true);
+
+            // 创建 serializer 用于写请求头
+            http::request_serializer<http::empty_body> sr{stream_req};
+
+            // 写请求头
+            auto write_header_visitor =
+                [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
+            {
+                boost::system::error_code ec;
+                co_await http::async_write_header(*stream_ptr, sr,
+                    net::redirect_error(ec));
+                co_return ec;
+            };
+            ec = co_await boost::variant2::visit(write_header_visitor, stream_socket_);
+            if (ec)
+                co_return ec;
+
+            // 流式上传 body (chunked)
+            if (upload_handler_)
+            {
+                char buf[65536];
+
+                while (true)
+                {
+                    int n = upload_handler_(buf, sizeof(buf));
+                    if (n <= 0)
+                        break;
+
+                    // 设置超时
+                    auto set_timeout_visitor =
+                        [this](auto& stream_ptr)
+                    {
+                        using stream_t = std::decay_t<decltype(*stream_ptr)>;
+                        if constexpr (std::is_same_v<stream_t, ssl_stream>)
+                            stream_ptr->next_layer().expires_after(timeout_);
+                        else
+                            stream_ptr->expires_after(timeout_);
+                    };
+                    boost::variant2::visit(set_timeout_visitor, stream_socket_);
+
+                    // 写入 chunk
+                    auto chunk = http::chunk_body(
+                        net::buffer(buf, static_cast<std::size_t>(n)));
+                    auto write_visitor =
+                        [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
+                    {
+                        boost::system::error_code ec;
+                        co_await net::async_write(*stream_ptr, chunk,
+                            net::redirect_error(ec));
+                        co_return ec;
+                    };
+                    ec = co_await boost::variant2::visit(write_visitor, stream_socket_);
+                    if (ec)
+                        co_return ec;
+                }
+
+                // 设置超时
+                {
+                    auto set_timeout_visitor =
+                        [this](auto& stream_ptr)
+                    {
+                        using stream_t = std::decay_t<decltype(*stream_ptr)>;
+                        if constexpr (std::is_same_v<stream_t, ssl_stream>)
+                            stream_ptr->next_layer().expires_after(timeout_);
+                        else
+                            stream_ptr->expires_after(timeout_);
+                    };
+                    boost::variant2::visit(set_timeout_visitor, stream_socket_);
+                }
+
+                // 写入 final chunk (0\r\n\r\n)
+                {
+                    http::chunk_last last_chunk;
+                    auto write_visitor =
+                        [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
+                    {
+                        boost::system::error_code ec;
+                        co_await net::async_write(*stream_ptr, last_chunk,
+                            net::redirect_error(ec));
+                        co_return ec;
+                    };
+                    ec = co_await boost::variant2::visit(write_visitor, stream_socket_);
+                }
+                if (ec)
+                    co_return ec;
+            }
+            else
+            {
+                // 没有设置 upload_handler, 发送空 chunked body
+                http::chunk_last last_chunk;
+                auto write_visitor =
+                    [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
+                {
+                    boost::system::error_code ec;
+                    co_await net::async_write(*stream_ptr, last_chunk,
+                        net::redirect_error(ec));
+                    co_return ec;
+                };
+                ec = co_await boost::variant2::visit(write_visitor, stream_socket_);
+                if (ec)
+                    co_return ec;
+            }
+
+            // 读取响应
+            auto result = co_await async_read_response();
+            if (!result)
+                co_return result.error();
+
+            auto& resp = *result;
+
+            // 检查是否需要重定向
+            if (follow_redirect_ && redirect_count < max_redirects_)
+            {
+                auto status = resp.result_int();
+                if (status == 301 || status == 302 ||
+                    status == 303 || status == 307 || status == 308)
+                {
+                    auto location = resp.find(http::field::location);
+                    if (location != resp.end())
+                    {
+                        std::string new_url(location->value());
+                        auto new_url_result = urls::parse_uri_reference(new_url);
+                        if (new_url_result)
+                        {
+                            current_url = new_url;
+                            redirect_count++;
+                            close();
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            co_return result;
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // 辅助: 关闭连接
     // -----------------------------------------------------------------------
 
@@ -600,6 +835,11 @@ namespace httpc {
     void http_client::set_transfer_handler(transfer_handler&& handler) noexcept
     {
         transfer_handler_ = std::move(handler);
+    }
+
+    void http_client::set_upload_handler(upload_handler&& handler) noexcept
+    {
+        upload_handler_ = std::move(handler);
     }
 
     bool http_client::check_certificate() const noexcept

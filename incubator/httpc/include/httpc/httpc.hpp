@@ -64,6 +64,7 @@ namespace httpc {
     class http_client
     {
         using transfer_handler = std::function<int(const void*, std::size_t)>;
+        using upload_handler = std::function<int(void*, std::size_t)>;
 
     public:
         using ssl_stream = beast::ssl_stream<beast::tcp_stream>;
@@ -124,6 +125,21 @@ namespace httpc {
             const std::string& file_path,
             const http_request& req = http_request{}) noexcept;
 
+        // 异步上传流数据.
+        // 使用 upload_handler 作为数据源流式上传, 支持重定向.
+        //
+        // 使用示例:
+        //
+        //  http_client client(co_await net::this_coro::executor);
+        //  client.set_upload_handler([](void* data, std::size_t size) -> int {
+        //      return ::read(fd, data, size);
+        //  });
+        //  co_await client.async_upload_stream(
+        //      "https://example.com/upload", req);
+        //
+        net::awaitable<http_result> async_upload_stream(
+            const std::string& url, const http_request& req) noexcept;
+
         // ------------------------------------------------------------
         // 以下接口为手工精细控制.
 
@@ -149,6 +165,9 @@ namespace httpc {
 
         // 设置传输回调函数, 用于获取传输进度.
         void set_transfer_handler(transfer_handler&& handler) noexcept;
+
+        // 设置上传数据回调函数, 用于提供上传流数据.
+        void set_upload_handler(upload_handler&& handler) noexcept;
 
         // 检查和设置证书认证是否启用 (默认关闭).
         bool check_certificate() const noexcept;
@@ -191,6 +210,9 @@ namespace httpc {
 
         // 传输回调.
         transfer_handler transfer_handler_;
+
+        // 上传回调.
+        upload_handler upload_handler_;
 
         // 下载文件句柄 (RAII).
         std::unique_ptr<FILE, fclose_deleter> download_file_{
