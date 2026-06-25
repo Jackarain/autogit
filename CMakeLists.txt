@@ -342,7 +342,7 @@ if (ENABLE_SYSTEM_LIBSSH2)
 	find_package(Libssh2 REQUIRED)
 else()
 	#if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-		set(ENABLE_DEBUG_LOGGING ON)
+	#	set(ENABLE_DEBUG_LOGGING ON)
 	#endif()
 
 	set(BUILD_STATIC_LIBS ON)

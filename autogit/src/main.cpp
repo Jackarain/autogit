@@ -287,7 +287,7 @@ static int process_status_entries(
         case GIT_STATUS_WT_NEW:
             ret = git_index_add_bypath(handle, old_file_path);
             commit_count++;
-            LOG_DBG << "Untracked file: "
+            XLOG_DBG << "Untracked file: "
                 << entry->index_to_workdir->old_file.path;
             break;
 
@@ -295,7 +295,7 @@ static int process_status_entries(
         case GIT_STATUS_WT_MODIFIED:
             ret = git_index_add_bypath(handle, old_file_path);
             commit_count++;
-            LOG_DBG << "modify file: "
+            XLOG_DBG << "modify file: "
                 << entry->index_to_workdir->old_file.path;
             break;
 
@@ -303,7 +303,7 @@ static int process_status_entries(
         case GIT_STATUS_WT_DELETED:
             ret = git_index_remove_bypath(handle, old_file_path);
             commit_count++;
-            LOG_DBG << "delete file: "
+            XLOG_DBG << "delete file: "
                 << entry->index_to_workdir->old_file.path;
             break;
 
@@ -311,13 +311,13 @@ static int process_status_entries(
         case GIT_STATUS_WT_TYPECHANGE:
             ret = git_index_add_bypath(handle, old_file_path);
             commit_count++;
-            LOG_DBG << "typechg file: "
+            XLOG_DBG << "typechg file: "
                 << entry->index_to_workdir->old_file.path;
             break;
 
         // 重命名的文件 → 暂存新路径。
         case GIT_STATUS_WT_RENAMED:
-            LOG_DBG << "rename file: "
+            XLOG_DBG << "rename file: "
                 << entry->index_to_workdir->old_file.path
                 << " to "
                 << entry->index_to_workdir->new_file.path;
@@ -332,7 +332,7 @@ static int process_status_entries(
         // 检查 libgit2 操作是否成功，失败时记录错误并退出。
         if (ret != 0)
         {
-            LOG_DBG << "git_index_add_bypath, path: "
+            XLOG_DBG << "git_index_add_bypath, path: "
                 << old_file_path
                 << ", status: " << entry->status
                 << ", err: "
@@ -367,7 +367,7 @@ static int write_tree_and_commit(
     // 将索引写入磁盘（.git/index）。
     if (git_index_write(index.native()) != 0)
     {
-        LOG_DBG << "git_index_write, err: "
+        XLOG_DBG << "git_index_write, err: "
             << git_error_last()->message;
         return EXIT_FAILURE;
     }
@@ -496,11 +496,11 @@ static void push_lfs_objects(gitpp::repo& repo)
 
     if (lfs_url.empty())
     {
-        LOG_DBG << "LFS push URL not available, skipping LFS object upload.";
+        XLOG_DBG << "LFS push URL not available, skipping LFS object upload.";
         return;
     }
 
-    LOG_DBG << "Pushing LFS objects to: " << lfs_url;
+    XLOG_DBG << "Pushing LFS objects to: " << lfs_url;
 
     // 尝试通过 HTTP Batch API 推送 LFS 对象。
     auto lfs_ret = gitpp::lfs::push_lfs_objects_http(
@@ -508,11 +508,11 @@ static void push_lfs_objects(gitpp::repo& repo)
 
     if (!lfs_ret)
     {
-        LOG_DBG << "LFS objects pushed successfully via HTTP batch API.";
+        XLOG_DBG << "LFS objects pushed successfully via HTTP batch API.";
         return;
     }
 
-    LOG_DBG << "LFS HTTP push failed: " << *lfs_ret;
+    XLOG_DBG << "LFS HTTP push failed: " << *lfs_ret;
 }
 
 /**
@@ -532,7 +532,7 @@ static int push_to_remote(gitpp::repo& repo)
     git_push_options options;
     if (git_push_init_options(&options, GIT_PUSH_OPTIONS_VERSION) != 0)
     {
-        LOG_DBG << "git_push_init_options, err: "
+        XLOG_DBG << "git_push_init_options, err: "
             << git_error_last()->message;
         return EXIT_FAILURE;
     }
@@ -558,12 +558,12 @@ static int push_to_remote(gitpp::repo& repo)
 
     if (git_remote_push(remote.native(), &arr, &options) != 0)
     {
-        LOG_DBG << "git_remote_push, err: "
+        XLOG_DBG << "git_remote_push, err: "
             << git_error_last()->message;
         return EXIT_FAILURE;
     }
 
-    LOG_DBG << "Successfully pushed to remote repository";
+    XLOG_DBG << "Successfully pushed to remote repository";
     return EXIT_SUCCESS;
 }
 
@@ -624,7 +624,7 @@ static int ensure_git_repository(const std::string& git_dir)
 
     // 无远程 URL 时发出警告，但仍继续初始化本地仓库。
     if (global_git_remote_url.empty())
-        LOG_WARN << "git remote url is empty, please set a remote url";
+        XLOG_WARN << "git remote url is empty, please set a remote url";
 
     boost::system::error_code ec;
 
@@ -634,7 +634,7 @@ static int ensure_git_repository(const std::string& git_dir)
         fs::create_directories(git_dir, ec);
         if (ec)
         {
-            LOG_ERR << "create git dir: " << git_dir
+            XLOG_ERR << "create git dir: " << git_dir
                 << ", err: " << ec.message();
             return EXIT_FAILURE;
         }
@@ -647,7 +647,7 @@ static int ensure_git_repository(const std::string& git_dir)
     }
     catch (const std::exception& e)
     {
-        LOG_ERR << "init git repo: '" << git_dir
+        XLOG_ERR << "init git repo: '" << git_dir
             << "' failure: " << e.what();
         return EXIT_FAILURE;
     }
@@ -687,14 +687,14 @@ static void setup_lfs_for_repository(gitpp::repo& repo)
     int attr_ret = gitpp::lfs::write_lfs_attributes(
         git_dir_path, lfs_patterns);
     if (attr_ret != 0)
-        LOG_WARN << "Failed to write LFS attributes to .git/info/attributes";
+        XLOG_WARN << "Failed to write LFS attributes to .git/info/attributes";
 
     // 注册 LFS clean/smudge filter 到 libgit2。
     int filter_ret = gitpp::lfs::register_lfs_filter(git_dir_path);
     if (filter_ret != 0)
-        LOG_WARN << "Failed to register LFS filter (ret=" << filter_ret << ")";
+        XLOG_WARN << "Failed to register LFS filter (ret=" << filter_ret << ")";
     else
-        LOG_DBG << "LFS filter registered successfully";
+        XLOG_DBG << "LFS filter registered successfully";
 }
 
 /**
@@ -715,11 +715,11 @@ static void log_head_commit_info(gitpp::repo& repo)
     {
         gitpp::reference head = repo.head();
         gitpp::commit commit = repo.lookup_commit(head.target());
-        LOG_DBG << "Last commit: " << commit.message();
+        XLOG_DBG << "Last commit: " << commit.message();
     }
     catch (const std::exception& e)
     {
-        LOG_WARN << "lookup_commit, exception: " << e.what();
+        XLOG_WARN << "lookup_commit, exception: " << e.what();
     }
 }
 
@@ -755,7 +755,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
         // 步骤2：打开仓库并进行初始化配置。
         gitpp::repo repo(git_dir);
 
-        LOG_DBG << "Open repo: " << git_dir
+        XLOG_DBG << "Open repo: " << git_dir
             << ", is_bare: " << repo.is_bare()
             << ", is_empty: " << repo.is_empty()
             << ", is_head_detached: " << repo.is_head_detached()
@@ -777,7 +777,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
             }
             catch (const std::exception& e)
             {
-                LOG_ERR << "gitwork, exception: " << e.what();
+                XLOG_ERR << "gitwork, exception: " << e.what();
             }
 
             // 4b. 等待文件系统变更通知（可被取消信号中断）。
@@ -790,7 +790,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
                 // 操作被取消（收到终止信号），正常退出循环。
                 if (ec == boost::asio::error::operation_aborted)
                 {
-                    LOG_DBG << "git_work_loop cancelled normally";
+                    XLOG_DBG << "git_work_loop cancelled normally";
                     break;
                 }
 
@@ -801,7 +801,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
                     oss << "CHG: " << (int)file.type_ << ", FILE: " << file.path_;
                     if (!file.new_path_.empty())
                         oss << " -> " << file.new_path_;
-                    LOG_DBG << oss.str();
+                    XLOG_DBG << oss.str();
                 }
             }
 
@@ -817,17 +817,17 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
 
                 if (ec == boost::asio::error::operation_aborted)
                 {
-                    LOG_DBG << "git_work_loop cancelled normally";
+                    XLOG_DBG << "git_work_loop cancelled normally";
                     break;
                 }
             }
         }
 
-        LOG_DBG << "git_work_loop exited normally";
+        XLOG_DBG << "git_work_loop exited normally";
     }
     catch (std::exception& e)
     {
-        LOG_DBG << "git loop thread stopped, exception: " << e.what();
+        XLOG_DBG << "git loop thread stopped, exception: " << e.what();
     }
 
     co_return EXIT_SUCCESS;
@@ -939,7 +939,7 @@ static bool parse_command_line(
         std::ifstream ifs(config);
         if (!ifs)
         {
-            LOG_ERR << "can not open config file: " << config;
+            XLOG_ERR << "can not open config file: " << config;
             return false;
         }
         po::store(po::parse_config_file(ifs, desc), vm);
@@ -996,11 +996,18 @@ net::awaitable<int> co_main(int argc, char** argv)
     if (!parse_command_line(argc, argv, desc, vm, config))
         co_return EXIT_FAILURE;
 
-    // 静默模式下关闭控制台日志，仅保留文件日志。
+    // 静默模式下关闭控制台日志。
     if (quiet)
     {
-        util::toggle_logging();
-        util::toggle_write_logging(true);
+        xlogger::toggle_console_logging(false);
+        xlogger::toggle_write_logging(false);
+    }
+
+    // 步骤2：初始化日志系统。
+    if (vm.count("log-dir"))
+    {
+        xlogger::toggle_write_logging(true);
+        xlogger::init_logging(log_dir);
     }
 
     // 帮助输出：打印选项说明并退出。
@@ -1010,14 +1017,11 @@ net::awaitable<int> co_main(int argc, char** argv)
         co_return EXIT_SUCCESS;
     }
 
-    // 步骤2：初始化日志系统。
-    util::init_logging(log_dir);
-
     // 步骤3：设置终止信号处理。
     net::signal_set terminator_signal(co_await net::this_coro::executor);
     setup_termination_signals(terminator_signal);
 
-    LOG_DBG << "Running...";
+    XLOG_DBG << "Running...";
 
     net::cancellation_signal cancel_signal;
 
