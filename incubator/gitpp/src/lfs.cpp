@@ -1263,7 +1263,7 @@ int push_lfs_objects_http(
         if (std::filesystem::exists(obj_path, ec)) {
             ++upload_count;
 
-            // 使用 httpc 流式上传文件（PUT）。
+            // 使用 httpc 流式上传文件（PUT）— 通过 async_write_chunk 循环发送.
             ioc.restart();
 
             httpc::http_result upload_result;
@@ -1276,7 +1276,34 @@ int push_lfs_objects_http(
                     client.check_certificate(false);
                     client.follow_redirect(false);
 
-                    // 打开 LFS 对象文件用于流式读取
+                    // 解析上传 URL
+                    auto url_result = boost::urls::parse_uri_reference(upload_url);
+                    if (!url_result) {
+                        upload_result = url_result.error();
+                        co_return;
+                    }
+                    auto url_view = *url_result;
+
+                    // 连接服务器
+                    auto ec = co_await client.async_connect(url_view);
+                    if (ec) {
+                        upload_result = ec;
+                        co_return;
+                    }
+
+                    // 发送请求头 (chunked)
+                    httpc::http_request upload_req;
+                    upload_req.method(httpc::verb::put);
+                    upload_req.set(httpc::http::field::content_type,
+                                "application/octet-stream");
+
+                    ec = co_await client.async_write_header(url_view, upload_req);
+                    if (ec) {
+                        upload_result = ec;
+                        co_return;
+                    }
+
+                    // 打开 LFS 对象文件
                     auto* file = std::fopen(obj_path_str.c_str(), "rb");
                     if (!file) {
                         upload_result = boost::system::error_code{
@@ -1284,22 +1311,35 @@ int push_lfs_objects_http(
                         co_return;
                     }
 
-                    // 设置上传数据回调，从文件读取数据
-                    client.set_transfer_handler(
-                        [file](void* data, std::size_t size) -> int {
-                            return static_cast<int>(
-                                std::fread(data, 1, size, file));
-                        });
+                    // 循环读取文件并写入 chunk
+                    char buf[65536];
+                    while (true) {
+                        auto n = std::fread(buf, 1, sizeof(buf), file);
+                        if (n <= 0)
+                            break;
 
-                    httpc::http_request upload_req;
-                    upload_req.method(httpc::verb::put);
-                    upload_req.set(httpc::http::field::content_type,
-                                "application/octet-stream");
-
-                    upload_result = co_await client.async_upload_stream(
-                        upload_url, upload_req);
+                        client.set_stream_timeout();
+                        ec = co_await client.async_write_chunk(
+                            boost::asio::buffer(buf, static_cast<std::size_t>(n)));
+                        if (ec) {
+                            std::fclose(file);
+                            upload_result = ec;
+                            co_return;
+                        }
+                    }
 
                     std::fclose(file);
+
+                    // 发送 final chunk
+                    client.set_stream_timeout();
+                    ec = co_await client.async_write_chunk(boost::asio::const_buffer{});
+                    if (ec) {
+                        upload_result = ec;
+                        co_return;
+                    }
+
+                    // 读取响应
+                    upload_result = co_await client.async_read_response();
                 }, boost::asio::detached);
             ioc.run();
 
