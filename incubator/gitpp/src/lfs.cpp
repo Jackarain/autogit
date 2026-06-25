@@ -1269,20 +1269,37 @@ int push_lfs_objects_http(
             httpc::http_result upload_result;
 
             boost::asio::co_spawn(ioc,
-                [&]() mutable -> boost::asio::awaitable<void> {
+                [&, obj_path_str = obj_path.string()]() mutable -> boost::asio::awaitable<void> {
                     httpc::http_client client(ioc.get_executor());
                     client.timeout(std::chrono::seconds(120));
                     client.connect_timeout(std::chrono::seconds(30));
                     client.check_certificate(false);
                     client.follow_redirect(false);
 
+                    // 打开 LFS 对象文件用于流式读取
+                    auto* file = std::fopen(obj_path_str.c_str(), "rb");
+                    if (!file) {
+                        upload_result = boost::system::error_code{
+                            errno, boost::system::generic_category()};
+                        co_return;
+                    }
+
+                    // 设置上传数据回调，从文件读取数据
+                    client.set_upload_handler(
+                        [file](void* data, std::size_t size) -> int {
+                            return static_cast<int>(
+                                std::fread(data, 1, size, file));
+                        });
+
                     httpc::http_request upload_req;
                     upload_req.method(httpc::verb::put);
                     upload_req.set(httpc::http::field::content_type,
                                 "application/octet-stream");
 
-                    upload_result = co_await client.async_upload_file(
-                        upload_url, obj_path.string(), upload_req);
+                    upload_result = co_await client.async_upload_stream(
+                        upload_url, upload_req);
+
+                    std::fclose(file);
                 }, boost::asio::detached);
             ioc.run();
 
