@@ -861,7 +861,7 @@ static po::options_description build_options_description(
     desc.add_options()
         ("help,h", "Display help information.")
         ("config,c", po::value<std::string>(&config)->default_value("autogit.conf"), "Path to the configuration file.")
-        ("quiet", po::value<bool>(&quiet)->default_value(false), "Mute all logging.")
+        ("quiet", po::value<bool>(&quiet)->implicit_value(true)->default_value(false), "Mute all logging.")
         ("log_dir", po::value<std::string>(&log_dir)->value_name("path"), "Specify directory for log files.")
         ("check_interval", po::value<int>(&check_interval)->default_value(60), "Time interval (in seconds) between Git repository checks.");
 
