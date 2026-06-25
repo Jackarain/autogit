@@ -425,7 +425,7 @@ namespace httpc {
                     // 传输回调
                     if (transfer_handler_)
                     {
-                        transfer_handler_(data, size);
+                        transfer_handler_((char*)data, size);
                     }
                 }
                 body.clear();
@@ -566,13 +566,13 @@ namespace httpc {
                 co_return ec;
 
             // 流式上传 body (chunked)
-            if (upload_handler_)
+            if (transfer_handler_)
             {
                 char buf[65536];
 
                 while (true)
                 {
-                    int n = upload_handler_(buf, sizeof(buf));
+                    int n = transfer_handler_(buf, sizeof(buf));
                     if (n <= 0)
                         break;
 
@@ -682,11 +682,6 @@ namespace httpc {
     void http_client::set_transfer_handler(transfer_handler&& handler) noexcept
     {
         transfer_handler_ = std::move(handler);
-    }
-
-    void http_client::set_upload_handler(upload_handler&& handler) noexcept
-    {
-        upload_handler_ = std::move(handler);
     }
 
     bool http_client::check_certificate() const noexcept

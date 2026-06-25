@@ -1285,7 +1285,7 @@ int push_lfs_objects_http(
                     }
 
                     // 设置上传数据回调，从文件读取数据
-                    client.set_upload_handler(
+                    client.set_transfer_handler(
                         [file](void* data, std::size_t size) -> int {
                             return static_cast<int>(
                                 std::fread(data, 1, size, file));
