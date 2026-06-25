@@ -163,6 +163,8 @@ namespace httpc {
             if (ec)
                 co_return ec;
 
+            client.clear_stream_timeout();
+
             ec = co_await send(url_view);
             if (ec)
                 co_return ec;
@@ -267,6 +269,23 @@ namespace httpc {
         if (ec)
             co_return ec;
 
+        struct clear_timeout {
+            variant_socket& stream_socket_;
+            ~clear_timeout() {
+                auto visitor = [](auto& stream_ptr)
+                {
+                    if (!stream_ptr)
+                        return;
+                    using stream_t = std::decay_t<decltype(*stream_ptr)>;
+                    if constexpr (std::is_same_v<stream_t, ssl_stream>)
+                        stream_ptr->next_layer().expires_never();
+                    else
+                        stream_ptr->expires_never();
+                };
+                boost::variant2::visit(visitor, stream_socket_);
+            }
+        } timeout_defer { this->stream_socket_ };
+
         if (use_ssl)
         {
             // ---- HTTPS ----
@@ -335,6 +354,7 @@ namespace httpc {
             request.keep_alive(false);
 
         // 发送请求
+        set_stream_timeout();
         auto send_visitor =
             [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
         {
@@ -345,6 +365,7 @@ namespace httpc {
         };
 
         ec = co_await boost::variant2::visit(send_visitor, stream_socket_);
+        clear_stream_timeout();
 
         co_return ec;
     }
@@ -361,6 +382,7 @@ namespace httpc {
         boost::system::error_code ec;
 
         // 读取 header
+        set_stream_timeout();
         auto read_header_visitor =
             [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
         {
@@ -371,6 +393,7 @@ namespace httpc {
         };
 
         ec = co_await boost::variant2::visit(read_header_visitor, stream_socket_);
+        clear_stream_timeout();
         if (ec)
             co_return ec;
 
@@ -406,6 +429,7 @@ namespace httpc {
                 };
 
                 ec = co_await boost::variant2::visit(read_some_visitor, stream_socket_);
+                clear_stream_timeout();
 
                 // 处理 body 数据 (从 parser 中的 message 获取)
                 auto& msg = parser.get();
@@ -497,7 +521,7 @@ namespace httpc {
             http::request<http::file_body> file_req{
                 req.method(), req.target(), req.version()};
 
-            // 使用辅助函数设置目标路径, Host, User-Agent, Connection 等.
+            // 设置目标路径, Host, User-Agent, Connection 等.
             setup_request_from_url(file_req, url_view);
             copy_request_headers(file_req, req);
 
@@ -510,6 +534,7 @@ namespace httpc {
             file_req.prepare_payload();  // 设置 Content-Length
 
             // 发送请求 (流式读取文件并写入 socket)
+            set_stream_timeout();
             auto send_visitor =
                 [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
             {
@@ -519,6 +544,7 @@ namespace httpc {
                 co_return ec;
             };
             ec = co_await boost::variant2::visit(send_visitor, stream_socket_);
+            clear_stream_timeout();
 
             co_return ec;
         };
@@ -539,10 +565,14 @@ namespace httpc {
         {
             boost::system::error_code ec;
 
+            set_stream_timeout();
+
             // 使用 async_write_header 发送 chunked 请求头
             ec = co_await async_write_header(url_view, req);
             if (ec)
                 co_return ec;
+
+            clear_stream_timeout();
 
             // 流式上传 body (chunked)
             if (transfer_handler_)
@@ -562,6 +592,8 @@ namespace httpc {
                         net::buffer(buf, static_cast<std::size_t>(n)));
                     if (ec)
                         co_return ec;
+
+                    clear_stream_timeout();
                 }
 
                 set_stream_timeout();
@@ -570,13 +602,19 @@ namespace httpc {
                 ec = co_await async_write_chunk(net::const_buffer{});
                 if (ec)
                     co_return ec;
+
+                clear_stream_timeout();
             }
             else
             {
+                set_stream_timeout();
+
                 // 没有设置 transfer_handler, 发送空 chunked body
                 ec = co_await async_write_chunk(net::const_buffer{});
                 if (ec)
                     co_return ec;
+
+                set_stream_timeout();
             }
 
             co_return ec;
@@ -609,6 +647,7 @@ namespace httpc {
         http::request_serializer<http::empty_body> sr{stream_req};
 
         // 写请求头
+        set_stream_timeout();
         auto write_header_visitor =
             [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
         {
@@ -618,6 +657,7 @@ namespace httpc {
             co_return ec;
         };
         ec = co_await boost::variant2::visit(write_header_visitor, stream_socket_);
+        clear_stream_timeout();
 
         co_return ec;
     }
@@ -628,6 +668,9 @@ namespace httpc {
 
     void http_client::set_stream_timeout()
     {
+        if (timeout_ == std::chrono::milliseconds::max())
+            return;
+
         auto visitor = [this](auto& stream_ptr)
         {
             using stream_t = std::decay_t<decltype(*stream_ptr)>;
@@ -635,6 +678,24 @@ namespace httpc {
                 stream_ptr->next_layer().expires_after(timeout_);
             else
                 stream_ptr->expires_after(timeout_);
+        };
+        boost::variant2::visit(visitor, stream_socket_);
+    }
+
+    void http_client::clear_stream_timeout()
+    {
+        if (timeout_ == std::chrono::milliseconds::max())
+            return;
+
+        auto visitor = [](auto& stream_ptr)
+        {
+            if (!stream_ptr)
+                return;
+            using stream_t = std::decay_t<decltype(*stream_ptr)>;
+            if constexpr (std::is_same_v<stream_t, ssl_stream>)
+                stream_ptr->next_layer().expires_never();
+            else
+                stream_ptr->expires_never();
         };
         boost::variant2::visit(visitor, stream_socket_);
     }
@@ -669,6 +730,7 @@ namespace httpc {
         {
             if (!stream_ptr)
                 return;
+
             beast::error_code ec;
             using stream_t = std::decay_t<decltype(*stream_ptr)>;
             if constexpr (std::is_same_v<stream_t, ssl_stream>)

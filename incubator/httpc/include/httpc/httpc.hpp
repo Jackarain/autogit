@@ -155,6 +155,9 @@ namespace httpc {
         // 设置当前流的超时.
         void set_stream_timeout();
 
+        // 清除当前流的超时.
+        void clear_stream_timeout();
+
         // 关闭当前连接.
         void close();
 
@@ -234,9 +237,9 @@ namespace httpc {
         bool follow_redirect_{true};
         int max_redirects_{5};
 
-        // 超时设置.
-        std::chrono::milliseconds connect_timeout_{30000};
-        std::chrono::milliseconds timeout_{30000};
+        // 超时设置, 默认永不超时.
+        std::chrono::milliseconds connect_timeout_{std::chrono::milliseconds::max()};
+        std::chrono::milliseconds timeout_{std::chrono::milliseconds::max()};
     };
 
 } // namespace httpc

@@ -1170,7 +1170,6 @@ std::optional<std::string> push_lfs_objects_http(
     boost::asio::co_spawn(ioc,
         [&]() mutable -> boost::asio::awaitable<void> {
             httpc::http_client client(ioc.get_executor());
-            client.timeout(std::chrono::seconds(120));
             client.connect_timeout(std::chrono::seconds(30));
             client.check_certificate(false);
             client.follow_redirect(false);
@@ -1278,7 +1277,6 @@ std::optional<std::string> push_lfs_objects_http(
         boost::asio::co_spawn(ioc,
             [&]() mutable -> boost::asio::awaitable<void> {
                 httpc::http_client client(ioc.get_executor());
-                client.timeout(std::chrono::seconds(120));
                 client.connect_timeout(std::chrono::seconds(30));
                 client.check_certificate(false);
                 client.follow_redirect(false);
