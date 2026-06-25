@@ -20,12 +20,12 @@ target_include_directories(httpc
 target_link_libraries(httpc
 	PUBLIC
 		Boost::asio
+		Boost::beast
 		Boost::url
 		Boost::variant2
 		OpenSSL::SSL
 		OpenSSL::Crypto
 	PRIVATE
-		Boost::beast
 		Boost::system
 )
 
