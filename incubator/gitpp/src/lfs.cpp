@@ -1116,19 +1116,21 @@ std::vector<lfs_object> collect_new_lfs_objects(
 // LFS HTTP 推送 — 使用 httpc 库
 // ============================================================================
 
-int push_lfs_objects_http(
+std::string push_lfs_objects_http(
     const std::string& lfs_push_url,
     const std::filesystem::path& gitdir,
     const std::string& auth_header)
 {
+    std::string ret = gitdir.string();
+
     if (lfs_push_url.empty()) {
-        return -1;
+        return ret;
     }
 
     // 收集所有本地 LFS 对象。
     auto objects = collect_new_lfs_objects(gitdir);
     if (objects.empty()) {
-        return 0;
+        return ret;
     }
 
     // 构建 LFS 批量 API 请求的 JSON (使用 boost.json).
@@ -1198,13 +1200,13 @@ int push_lfs_objects_http(
     ioc.run();
 
     if (!batch_result) {
-        return -1;
+        return ret;
     }
 
     auto& response = *batch_result;
     auto http_status = response.result_int();
     if (http_status != 200) {
-        return -1;
+        return ret;
     }
 
     // 使用 boost.json 解析响应.
@@ -1212,12 +1214,12 @@ int push_lfs_objects_http(
     try {
         jv = json::parse(response_body);
     } catch (const std::exception& e) {
-        return -1;
+        return ret;
     }
 
     auto& resp_obj = jv.as_object();
     if (!resp_obj.contains("objects")) {
-        return -1;
+        return ret;
     }
 
     auto& resp_objects = resp_obj["objects"].as_array();
@@ -1233,6 +1235,7 @@ int push_lfs_objects_http(
             ++error_count;
             continue;
         }
+
         std::string oid = json::value_to<std::string>(obj["oid"]);
 
         // 尝试从 actions.upload 或直接 upload 中获取 href.
@@ -1260,50 +1263,52 @@ int push_lfs_objects_http(
         auto obj_path = store.object_path(oid);
 
         std::error_code ec;
-        if (std::filesystem::exists(obj_path, ec)) {
-            ++upload_count;
-
-            // 使用 httpc 的 async_upload_file 流式上传文件.
-            ioc.restart();
-
-            httpc::http_result upload_result;
-
-            boost::asio::co_spawn(ioc,
-                [&, obj_path_str = obj_path.string()]() mutable -> boost::asio::awaitable<void> {
-                    httpc::http_client client(ioc.get_executor());
-                    client.timeout(std::chrono::seconds(120));
-                    client.connect_timeout(std::chrono::seconds(30));
-                    client.check_certificate(false);
-                    client.follow_redirect(false);
-
-                    // 构建上传请求
-                    httpc::http_request upload_req;
-                    upload_req.method(httpc::verb::put);
-                    upload_req.set(httpc::http::field::content_type,
-                                "application/octet-stream");
-
-                    // 使用 async_upload_file 直接上传文件
-                    upload_result = co_await client.async_upload_file(
-                        upload_url, obj_path_str, upload_req);
-                }, boost::asio::detached);
-            ioc.run();
-
-            if (!upload_result) {
-                ++error_count;
-            } else {
-                auto status = upload_result->result_int();
-                if (status >= 200 && status < 300) {
-                    ++success_count;
-                } else {
-                    ++error_count;
-                }
-            }
-        } else {
+        if (!std::filesystem::exists(obj_path, ec)) {
             ++error_count;
+            continue;
+        }
+
+        ++upload_count;
+
+        // 使用 httpc 的 async_upload_file 流式上传文件.
+        ioc.restart();
+
+        httpc::http_result upload_result;
+        ret = obj_path.string();
+
+        boost::asio::co_spawn(ioc,
+            [&, obj_path_str = ret]() mutable -> boost::asio::awaitable<void> {
+                httpc::http_client client(ioc.get_executor());
+                client.timeout(std::chrono::seconds(120));
+                client.connect_timeout(std::chrono::seconds(30));
+                client.check_certificate(false);
+                client.follow_redirect(false);
+
+                // 构建上传请求
+                httpc::http_request upload_req;
+                upload_req.method(httpc::verb::put);
+                upload_req.set(httpc::http::field::content_type,
+                            "application/octet-stream");
+
+                // 使用 async_upload_file 直接上传文件
+                upload_result = co_await client.async_upload_file(
+                    upload_url, obj_path_str, upload_req);
+            }, boost::asio::detached);
+        ioc.run();
+
+        if (!upload_result) {
+            ++error_count;
+        } else {
+            auto status = upload_result->result_int();
+            if (status >= 200 && status < 300) {
+                ++success_count;
+            } else {
+                ++error_count;
+            }
         }
     }
 
-    return (error_count == 0) ? 0 : -1;
+    return ret;
 }
 
 } // namespace lfs

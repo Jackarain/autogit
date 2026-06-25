@@ -460,24 +460,16 @@ static void push_lfs_objects(gitpp::repo& repo)
     LOG_DBG << "Pushing LFS objects to: " << lfs_url;
 
     // 尝试通过 HTTP Batch API 推送 LFS 对象。
-    int lfs_ret = gitpp::lfs::push_lfs_objects_http(
+    auto lfs_ret = gitpp::lfs::push_lfs_objects_http(
         lfs_url, repo.path());
 
-    if (lfs_ret == 0)
+    if (lfs_ret.empty())
     {
         LOG_DBG << "LFS objects pushed successfully via HTTP batch API.";
         return;
     }
 
-    LOG_DBG << "LFS HTTP push failed (ret=" << lfs_ret
-        << "), trying git-lfs fallback.";
-
-    // 回退方案：调用系统 git-lfs 命令行工具推送。
-    std::string lfs_cmd = "git -C \"" + repo.workdir()
-        + "\" lfs push --all origin 2>/dev/null";
-    int fallback_ret = std::system(lfs_cmd.c_str());
-    if (fallback_ret != 0)
-        LOG_DBG << "git-lfs fallback also failed, skipping LFS upload.";
+    LOG_DBG << "LFS HTTP push failed: " << lfs_ret;
 }
 
 /**
