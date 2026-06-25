@@ -9,9 +9,7 @@ project(autogit)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}" "${PROJECT_SOURCE_DIR}/cmake")
 
 include(CheckCXXCompilerFlag)
-include(CheckLibraryExists)
 include(CheckCXXLinkerFlag)
-include(CheckIPOSupported)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -52,12 +50,10 @@ if (WIN32)
 endif()
 
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "SYSTEM NAME: ${CMAKE_SYSTEM_NAME}")
 
 
 ################################################################################
 
-option(ENABLE_BUILD_WERROR			"All warnings being treated as errors" ON)
 option(ENABLE_GIT_VERSION			"Enable git version" ON)
 
 option(ENABLE_USE_IO_URING			"Enable auto use io_uring" OFF)
@@ -96,8 +92,6 @@ set(CMAKE_C_EXTENSIONS ON)
 ################################################################################
 
 if(WIN32)
-	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-
 	add_definitions(
 		-DWIN32_LEAN_AND_MEAN
 		-D_WIN32_WINNT=0x0A00
@@ -135,7 +129,7 @@ if (MSVC)
 
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj /MP /Zc:__cplusplus")
 	message(STATUS "Using parallel compiling (/MP)")
-	set(CMAKE_CXX_STACK_SIZE "100000000") #set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /STACK:100000000")
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /STACK:100000000")
 	message(STATUS "Set stack size: 100000000 bytes")
 
 	CHECK_CXX_COMPILER_FLAG(/std:c++20 COMPILER_HAS_STD_CXX20)
@@ -300,23 +294,14 @@ set(BOOST_EXCLUDE_LIBRARIES "context;coroutine;fiber;iostreams;graph;math;stackt
 set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/boost)
 add_subdirectory(third_party/boost EXCLUDE_FROM_ALL)
 
-set_property(TARGET boost_assert PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_container PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_atomic PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_chrono PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_core PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_date_time PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_exception PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_filesystem PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_json PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_url PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_nowide PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_program_options PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_system PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_thread PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_variant2 PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_unordered PROPERTY FOLDER "third_party/boost")
-set_property(TARGET boost_optional PROPERTY FOLDER "third_party/boost")
+foreach(boost_targets
+    boost_assert boost_container boost_atomic boost_chrono
+    boost_core boost_date_time boost_exception boost_filesystem
+    boost_json boost_url boost_nowide boost_program_options
+    boost_system boost_thread boost_variant2 boost_unordered boost_optional
+)
+    set_property(TARGET ${boost_targets} PROPERTY FOLDER "third_party/boost")
+endforeach()
 
 ################################################################################
 find_package(Threads)
