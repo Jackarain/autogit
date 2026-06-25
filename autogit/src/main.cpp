@@ -765,7 +765,8 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
         log_head_commit_info(repo);
 
         // 步骤3：创建文件系统监控器，监听目录变更。
-        watchman::watcher monitor(executor, boost::filesystem::path(git_dir));
+        watchman::watcher monitor(executor,
+            fs::path(git_dir), {fs::path(repo.path())});
 
         // 步骤4：主循环 — 监听变更 → 执行 Git 操作。
         while (true)
