@@ -52,7 +52,7 @@ namespace httpc {
     using http_result = result<http_response>;
     using verb = http::verb;
 
-    // 自定义 fclose 删除器, 避免 decltype(&std::fclose) 带来的属性警告.
+    // 自定义 fclose 删除器.
     struct fclose_deleter
     {
         void operator()(FILE* f) const noexcept
@@ -63,8 +63,6 @@ namespace httpc {
 
     class http_client
     {
-        using transfer_handler = std::function<int(void*, std::size_t)>;
-
     public:
         using ssl_stream = beast::ssl_stream<beast::tcp_stream>;
         using ssl_stream_ptr = std::unique_ptr<ssl_stream>;
@@ -75,6 +73,8 @@ namespace httpc {
         using variant_socket = boost::variant2::variant<tcp_stream_ptr, ssl_stream_ptr>;
 
         using executor_type = net::any_io_executor;
+
+        using transfer_handler = std::function<int(void*, std::size_t)>;
 
     public:
         // 构造函数.
