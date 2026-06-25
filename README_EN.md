@@ -9,12 +9,14 @@
 ## Features
 
 ### 🔄 Automatic Commit & Push
+
 - Automatically detects file changes (new, modified, deleted, renamed, type changed)
 - Automatically stages all changed files (`git add`)
 - Automatically creates commits and pushes to remote Git server
 - Supports force push mode
 
 ### 👁️ Real-time File Watching
+
 - Native file system event notifications per platform:
   - **Linux**: inotify
   - **macOS**: FSEvents
@@ -23,23 +25,27 @@
 - Configurable polling fallback interval
 
 ### 🔐 Multiple Authentication Methods
+
 - **SSH key authentication**: Custom public/private key paths and passphrase
 - **HTTP/HTTPS authentication**: Username/password support
 - Automatically adapts to remote repository authentication
 
 ### 🏗️ Automatic Repository Initialization
+
 - Auto-initializes Git repository if target directory is not yet a repo
 - Automatically configures remote URL
 - Supports initial commit for empty repositories
 
 ### 📦 Git LFS Support
+
 - **Native LFS Pointer Support**: Automatically detects patterns configured as `filter=lfs` in `.gitattributes`
 - **Automatic Clean/Smudge Filtering**: Uses libgit2's `git_filter` mechanism — automatically replaces large files with pointer files on staging and restores them on checkout
 - **Flexible Pattern Configuration**: Supports LFS file patterns via `.gitattributes` and command-line `--lfs_pattern` (glob wildcards)
 - **HTTP Batch API Upload**: Pushes LFS objects directly to remote servers via LFS Batch API
-- **Configurable Push URL**: Supports a dedicated LFS push URL via `--lfs_push_url`, which has lower priority than the `lfs.url` setting in `.lfsconfig`, `.git/lfsconfig`, or `.git/config`
+- **Configurable Push URL**: Supports a dedicated LFS push URL via `--lfs_push_url`
 
 ### ⚙️ Flexible Configuration
+
 - Command-line arguments and configuration file (`autogit.conf`) support
 - Custom commit messages
 - Custom Git author name and email
@@ -48,11 +54,13 @@
 - Configurable log directory
 
 ### 🐳 Docker Support
+
 - Dockerfiles for both Alpine and Ubuntu bases
 - Static linking for small image size
 - Ready-to-use containerized deployment
 
 ### 🖥️ Cross-platform
+
 - Linux, macOS, Windows — fully compatible
 - CMake build system with Ninja support
 - GCC, Clang, MSVC compiler support
@@ -125,7 +133,7 @@ docker run -d \
 ## Command-line Options
 
 | Option | Default | Description |
-|--------|---------|-------------|
+| ------ | ------- | ----------- |
 | `--repository` | — | Path to the Git repository to watch |
 | `--config` | `autogit.conf` | Path to configuration file |
 | `--check_interval` | `60` | Check interval in seconds |
@@ -133,7 +141,7 @@ docker run -d \
 | `--force_push` | `false` | Enable force push |
 | `--git_author` | — | Git commit author name |
 | `--git_email` | — | Git commit author email |
-| `--git_remote_url` | — | Remote repository URL |
+| `--git_remote_url` | — | Remote repository URL; used to set the remote when initializing a new repo; if `remote.origin.url` is already configured, the config file takes priority |
 | `--http_username` | — | HTTP auth username |
 | `--http_password` | — | HTTP auth password |
 | `--ssh_pubkey` | — | SSH public key path |

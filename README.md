@@ -9,12 +9,14 @@
 ## 功能特性
 
 ### 🔄 自动提交与推送
+
 - 自动检测仓库中的文件变更（新增、修改、删除、重命名、类型变更）
 - 自动 `git add` 所有变更文件
 - 自动创建提交并将更改推送到远程 Git 服务器
 - 支持强制推送（force push）模式
 
 ### 👁️ 实时文件监控
+
 - 基于操作系统的原生文件系统事件通知：
   - **Linux**: inotify
   - **macOS**: FSEvents
@@ -23,23 +25,27 @@
 - 可配置的轮询回退间隔作为补充
 
 ### 🔐 多种认证方式
+
 - **SSH 密钥认证**: 支持自定义公钥/私钥路径及密码短语
 - **HTTP/HTTPS 认证**: 支持用户名/密码认证
 - 自动适配远程仓库的认证方式
 
 ### 🏗️ 自动仓库初始化
+
 - 如果目标目录尚未初始化 Git 仓库，自动创建并初始化
 - 自动配置远程仓库地址
 - 支持空仓库首次提交（Initial Commit）
 
 ### 📦 Git LFS 大文件存储
+
 - **原生 LFS 指针文件支持**: 自动识别 `.gitattributes` 中配置为 `filter=lfs` 的文件模式
 - **自动 Clean/Smudge 过滤**: 基于 libgit2 的 `git_filter` 机制，暂存时自动将大文件替换为指针文件，检出时自动还原
 - **多方式 LFS 模式配置**: 支持通过 `.gitattributes` 和命令行 `--lfs_pattern` 参数指定 LFS 文件匹配模式（glob 通配符）
 - **HTTP Batch API 推送**: 通过 LFS 批量 API 直接上传 LFS 对象到远程服务器
-- **灵活的推送 URL**: 支持通过 `--lfs_push_url` 指定 LFS 对象推送地址，其优先级低于 `.lfsconfig`、`.git/lfsconfig`、`.git/config` 等配置文件中的 `lfs.url` 设置
+- **灵活的推送 URL**: 支持通过 `--lfs_push_url` 指定 LFS 对象推送地址
 
 ### ⚙️ 灵活配置
+
 - 支持命令行参数和配置文件（`autogit.conf`）两种方式
 - 自定义提交信息
 - 自定义 Git 作者名称和邮箱
@@ -48,11 +54,13 @@
 - 日志文件目录可配置
 
 ### 🐳 Docker 支持
+
 - 提供 Alpine 和 Ubuntu 两种基础镜像的 Dockerfile
 - 静态编译，镜像体积小
 - 开箱即用的容器化部署
 
 ### 🖥️ 跨平台支持
+
 - Linux、macOS、Windows 全平台兼容
 - 使用 CMake 构建系统，支持 Ninja 加速编译
 - 支持 GCC、Clang、MSVC 编译器
@@ -125,7 +133,7 @@ docker run -d \
 ## 命令行选项
 
 | 选项 | 默认值 | 描述 |
-|------|--------|------|
+| ------ | -------- | ------ |
 | `--repository` | — | 要监控的 Git 仓库路径 |
 | `--config` | `autogit.conf` | 配置文件路径 |
 | `--check_interval` | `60` | 检查间隔（秒） |
@@ -133,7 +141,7 @@ docker run -d \
 | `--force_push` | `false` | 启用强制推送 |
 | `--git_author` | — | Git 提交作者名称 |
 | `--git_email` | — | Git 提交作者邮箱 |
-| `--git_remote_url` | — | 远程仓库 URL |
+| `--git_remote_url` | — | 远程仓库 URL，用于初始化仓库时设置远程地址；如果仓库已有 `remote.origin.url` 配置，则优先使用配置文件中的设置 |
 | `--http_username` | — | HTTP 认证用户名 |
 | `--http_password` | — | HTTP 认证密码 |
 | `--ssh_pubkey` | — | SSH 公钥路径 |
