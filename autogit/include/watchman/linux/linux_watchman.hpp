@@ -46,16 +46,20 @@ namespace watchman {
 		linux_watch_service& operator=(const linux_watch_service&) = delete;
 
 	public:
-		linux_watch_service(const Executor& ex, const fs::path& dir)
+		linux_watch_service(const Executor& ex, const fs::path& dir,
+			const std::vector<fs::path>& excluded_dirs = {})
 			: net::posix::basic_stream_descriptor<Executor>(ex)
 			, m_watch_dir(dir)
 			, m_bufs(std::make_unique<std::array<char, read_buffer_size>>())
+			, m_excluded_dirs(excluded_dirs)
 		{
 			open(dir);
 		}
-		explicit linux_watch_service(const Executor& ex)
+		explicit linux_watch_service(const Executor& ex,
+			const std::vector<fs::path>& excluded_dirs = {})
 			: net::posix::basic_stream_descriptor<Executor>(ex)
 			, m_bufs(std::make_unique<std::array<char, read_buffer_size>>())
+			, m_excluded_dirs(excluded_dirs)
 		{}
 		~linux_watch_service() = default;
 
@@ -242,6 +246,22 @@ namespace watchman {
 			return {};
 		}
 
+		bool is_excluded(const fs::path& path) const
+		{
+			if (m_excluded_dirs.empty())
+				return false;
+
+			for (const auto& excluded : m_excluded_dirs)
+			{
+				auto it = std::mismatch(
+					excluded.begin(), excluded.end(),
+					path.begin(), path.end());
+				if (it.first == excluded.end())
+					return true;
+			}
+			return false;
+		}
+
 		void add_directory(const fs::path& dir) noexcept
 		{
 			boost::system::error_code ec;
@@ -250,6 +270,10 @@ namespace watchman {
 				return;
 
 			if (fs::is_symlink(dir, ec) || ec)
+				return;
+
+			// 跳过被排除的目录。
+			if (is_excluded(dir))
 				return;
 
 			auto wd = inotify_add_watch(
@@ -311,6 +335,7 @@ namespace watchman {
 
 	private:
 		fs::path m_watch_dir;
+		std::vector<fs::path> m_excluded_dirs;
 		using watch_descriptors = boost::bimap<int, fs::path>;
 		watch_descriptors m_watch_descriptors;
 		std::unique_ptr<std::array<char, read_buffer_size>> m_bufs;

@@ -45,14 +45,18 @@ namespace watchman {
         macos_watch_service& operator=(const macos_watch_service&) = delete;
 
     public:
-        macos_watch_service(const Executor& ex, const fs::path& dir)
+        macos_watch_service(const Executor& ex, const fs::path& dir,
+            const std::vector<fs::path>& excluded_dirs = {})
             : m_executor(ex)
+            , m_excluded_dirs(excluded_dirs)
         {
             open(dir);
         }
 
-        explicit macos_watch_service(const Executor& ex)
+        explicit macos_watch_service(const Executor& ex,
+            const std::vector<fs::path>& excluded_dirs = {})
             : m_executor(ex)
+            , m_excluded_dirs(excluded_dirs)
         {}
 
         ~macos_watch_service()
@@ -202,6 +206,23 @@ namespace watchman {
         }
 
     private:
+        bool is_excluded(const fs::path& path) const
+        {
+            if (m_excluded_dirs.empty())
+                return false;
+
+            for (const auto& excluded : m_excluded_dirs)
+            {
+                // 检查 path 是否在 excluded 目录下或其本身就是被排除的目录。
+                auto it = std::mismatch(
+                    excluded.begin(), excluded.end(),
+                    path.begin(), path.end());
+                if (it.first == excluded.end())
+                    return true;
+            }
+            return false;
+        }
+
         template <typename Handler>
         void start_op(Handler&& handler)
         {
@@ -267,6 +288,10 @@ namespace watchman {
                 // 按实际长度调整（不含空终止符）。
                 path_str.resize(std::strlen(path_str.c_str()));
 
+                // 跳过被排除目录中的事件。
+                if (fse_monitor->is_excluded(path_str))
+                    continue;
+
                 notify_event event;
                 event.path_ = std::move(path_str);
 
@@ -316,6 +341,7 @@ namespace watchman {
     private:
         Executor m_executor;
         fs::path m_watch_dir;
+        std::vector<fs::path> m_excluded_dirs;
         FSEventStreamContext m_stream_ctx{};
         FSEventStreamRef m_stream = nullptr;
         dispatch_queue_t m_fsevents_queue = nullptr;
