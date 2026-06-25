@@ -37,7 +37,7 @@
 - **自动 Clean/Smudge 过滤**: 基于 libgit2 的 `git_filter` 机制，暂存时自动将大文件替换为指针文件，检出时自动还原
 - **多方式 LFS 模式配置**: 支持通过 `.gitattributes` 和命令行 `--lfs_pattern` 参数指定 LFS 文件匹配模式（glob 通配符）
 - **HTTP Batch API 推送**: 通过 LFS 批量 API 直接上传 LFS 对象到远程服务器
-- **灵活的推送 URL**: 支持通过 `--lfs_push_url` 指定独立的 LFS 对象推送地址，默认从仓库远程 URL 推导
+- **灵活的推送 URL**: 支持通过 `--lfs_push_url` 指定 LFS 对象推送地址，其优先级低于 `.lfsconfig`、`.git/lfsconfig`、`.git/config` 等配置文件中的 `lfs.url` 设置
 
 ### ⚙️ 灵活配置
 - 支持命令行参数和配置文件（`autogit.conf`）两种方式
@@ -143,7 +143,7 @@ docker run -d \
 | `--log_dir` | — | 日志文件目录 |
 | `--lfs` | `false` | 启用 Git LFS 支持，匹配 `.gitattributes` 中 LFS 模式的文件将以指针文件存储 |
 | `--lfs_pattern` | — | 额外的 LFS 文件匹配模式（glob），例如 `--lfs_pattern '*.psd' --lfs_pattern '*.zip'` |
-| `--lfs_push_url` | — | LFS 对象推送 URL，覆盖 `.lfsconfig` 中的设置；为空时使用仓库远程 origin URL |
+| `--lfs_push_url` | — | LFS 对象推送 URL，优先级低于 `.lfsconfig` 等配置文件；仅在配置文件中未设置 `lfs.url` 时生效 |
 
 ---
 

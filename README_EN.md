@@ -37,7 +37,7 @@
 - **Automatic Clean/Smudge Filtering**: Uses libgit2's `git_filter` mechanism — automatically replaces large files with pointer files on staging and restores them on checkout
 - **Flexible Pattern Configuration**: Supports LFS file patterns via `.gitattributes` and command-line `--lfs_pattern` (glob wildcards)
 - **HTTP Batch API Upload**: Pushes LFS objects directly to remote servers via LFS Batch API
-- **Configurable Push URL**: Supports a dedicated LFS push URL via `--lfs_push_url`, defaults to the repository remote origin URL
+- **Configurable Push URL**: Supports a dedicated LFS push URL via `--lfs_push_url`, which has lower priority than the `lfs.url` setting in `.lfsconfig`, `.git/lfsconfig`, or `.git/config`
 
 ### ⚙️ Flexible Configuration
 - Command-line arguments and configuration file (`autogit.conf`) support
@@ -143,7 +143,7 @@ docker run -d \
 | `--log_dir` | — | Log file directory |
 | `--lfs` | `false` | Enable Git LFS support; files matching LFS patterns in `.gitattributes` will be stored as pointers |
 | `--lfs_pattern` | — | Additional LFS file patterns (glob), e.g. `--lfs_pattern '*.psd' --lfs_pattern '*.zip'` |
-| `--lfs_push_url` | — | LFS remote URL for pushing objects; overrides `.lfsconfig`; falls back to repository remote origin URL |
+| `--lfs_push_url` | — | LFS remote URL for pushing objects; has lower priority than config files (`.lfsconfig`, `.git/lfsconfig`, `.git/config`); only takes effect when `lfs.url` is not set in those files |
 
 ---
 
