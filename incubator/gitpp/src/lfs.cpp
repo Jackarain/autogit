@@ -24,6 +24,7 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/use_future.hpp>
+#include <boost/asio/detached.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/json.hpp>
 
@@ -1162,44 +1163,38 @@ int push_lfs_objects_http(
 
     // 使用 httpc 发送批量 API 请求（POST）。
     boost::asio::io_context ioc;
-
-    httpc::http_client client(ioc.get_executor());
-    client.timeout(std::chrono::seconds(120));
-    client.connect_timeout(std::chrono::seconds(30));
-    client.check_certificate(false);
-    client.follow_redirect(false);
-
-    httpc::http_request batch_req;
-    batch_req.method(httpc::verb::post);
-    batch_req.set(httpc::http::field::content_type,
-                  "application/vnd.git-lfs+json");
-    batch_req.set(httpc::http::field::accept,
-                  "application/vnd.git-lfs+json");
-    if (!auth_header.empty())
-        batch_req.set(httpc::http::field::authorization, auth_header);
-    batch_req.body() = json_body;
-    batch_req.prepare_payload();
-
     std::string response_body;
-    client.set_transfer_handler([&](auto data, auto size) mutable
-    {
-        response_body.append((const char*)data, size);
-    });
+    httpc::http_result batch_result;
 
     // 通过协程异步执行，使用 use_future 同步等待结果。
-    auto batch_future = boost::asio::co_spawn(ioc,
-        client.async_perform(batch_url, batch_req),
-        boost::asio::use_future);
-    ioc.run();
+    boost::asio::co_spawn(ioc,
+        [&]() mutable -> boost::asio::awaitable<void> {
+            httpc::http_client client(ioc.get_executor());
+            client.timeout(std::chrono::seconds(120));
+            client.connect_timeout(std::chrono::seconds(30));
+            client.check_certificate(false);
+            client.follow_redirect(false);
 
-    boost::system::result<httpc::http_response> batch_result;
-    try {
-        batch_result = batch_future.get();
-    } catch (const std::exception& e) {
-        return -1;
-    } catch (...) {
-        return -1;
-    }
+            client.set_transfer_handler([&](auto data, auto size) mutable {
+                response_body.append((const char*)data, size);
+            });
+
+            httpc::http_request batch_req;
+            batch_req.method(httpc::verb::post);
+            batch_req.set(httpc::http::field::content_type,
+                        "application/vnd.git-lfs+json");
+            batch_req.set(httpc::http::field::accept,
+                        "application/vnd.git-lfs+json");
+            if (!auth_header.empty())
+                batch_req.set(httpc::http::field::authorization, auth_header);
+            batch_req.body() = json_body;
+            batch_req.prepare_payload();
+
+            batch_result = co_await client.async_perform(batch_url, batch_req);
+            co_return;
+        },
+        boost::asio::detached);
+    ioc.run();
 
     if (!batch_result) {
         return -1;
@@ -1208,7 +1203,6 @@ int push_lfs_objects_http(
     auto& response = *batch_result;
     auto http_status = response.result_int();
     if (http_status != 200) {
-        std::string resp_body = boost::beast::buffers_to_string(response.body().data());
         return -1;
     }
 
@@ -1270,28 +1264,26 @@ int push_lfs_objects_http(
 
             // 使用 httpc 流式上传文件（PUT）。
             ioc.restart();
-            httpc::http_request upload_req;
-            upload_req.method(httpc::verb::put);
-            upload_req.set(httpc::http::field::content_type,
-                           "application/octet-stream");
 
-            auto tmp_path = obj_path.string();
-            auto upload_future = boost::asio::co_spawn(ioc,
-                client.async_upload_file(upload_url, tmp_path,
-                    upload_req),
-                boost::asio::use_future);
+            httpc::http_result upload_result;
+
+            boost::asio::co_spawn(ioc,
+                [&]() mutable -> boost::asio::awaitable<void> {
+                    httpc::http_client client(ioc.get_executor());
+                    client.timeout(std::chrono::seconds(120));
+                    client.connect_timeout(std::chrono::seconds(30));
+                    client.check_certificate(false);
+                    client.follow_redirect(false);
+
+                    httpc::http_request upload_req;
+                    upload_req.method(httpc::verb::put);
+                    upload_req.set(httpc::http::field::content_type,
+                                "application/octet-stream");
+
+                    upload_result = co_await client.async_upload_file(
+                        upload_url, obj_path.string(), upload_req);
+                }, boost::asio::detached);
             ioc.run();
-
-            boost::system::result<httpc::http_response> upload_result;
-            try {
-                upload_result = upload_future.get();
-            } catch (const std::exception& e) {
-                ++error_count;
-                continue;
-            } catch (...) {
-                ++error_count;
-                continue;
-            }
 
             if (!upload_result) {
                 ++error_count;
