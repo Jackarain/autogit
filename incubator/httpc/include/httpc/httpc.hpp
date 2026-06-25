@@ -153,6 +153,10 @@ namespace httpc {
         // 读取完整响应 (处理下载文件/传输回调).
         net::awaitable<http_result> async_read_response();
 
+        // 仅发送 HTTP 请求头.
+        net::awaitable<boost::system::error_code> async_write_header(
+            const urls::url_view& url, const http_request& req);
+
         // 写入 HTTP chunk (有数据时用 chunk_body, 空 buffer 时写入终止 chunk_last).
         net::awaitable<boost::system::error_code> async_write_chunk(
             net::const_buffer buffer);

@@ -538,30 +538,8 @@ namespace httpc {
         {
             boost::system::error_code ec;
 
-            // 构造请求 (使用 empty_body, 手动写入 chunked body)
-            http::request<http::empty_body> stream_req{
-                req.method(), req.target(), req.version()};
-
-            // 使用辅助函数设置目标路径, Host, User-Agent, Connection 等.
-            setup_request_from_url(stream_req, url_view);
-            copy_request_headers(stream_req, req);
-
-            // 设置 chunked 传输编码
-            stream_req.chunked(true);
-
-            // 创建 serializer 用于写请求头
-            http::request_serializer<http::empty_body> sr{stream_req};
-
-            // 写请求头
-            auto write_header_visitor =
-                [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
-            {
-                boost::system::error_code ec;
-                co_await http::async_write_header(*stream_ptr, sr,
-                    net::redirect_error(ec));
-                co_return ec;
-            };
-            ec = co_await boost::variant2::visit(write_header_visitor, stream_socket_);
+            // 使用 async_write_header 发送 chunked 请求头
+            ec = co_await async_write_header(url_view, req);
             if (ec)
                 co_return ec;
 
@@ -604,6 +582,43 @@ namespace httpc {
         };
 
         co_return co_await async_perform_loop(*this, url, std::move(send_func));
+    }
+
+    // -----------------------------------------------------------------------
+    // async_write_header
+    // -----------------------------------------------------------------------
+
+    net::awaitable<boost::system::error_code> http_client::async_write_header(
+        const urls::url_view& url, const http_request& req)
+    {
+        boost::system::error_code ec;
+
+        // 构造请求 (使用 empty_body, 手动写入 chunked body)
+        http::request<http::empty_body> stream_req{
+            req.method(), req.target(), req.version()};
+
+        // 使用辅助函数设置目标路径, Host, User-Agent, Connection 等.
+        setup_request_from_url(stream_req, url);
+        copy_request_headers(stream_req, req);
+
+        // 设置 chunked 传输编码
+        stream_req.chunked(true);
+
+        // 创建 serializer 用于写请求头
+        http::request_serializer<http::empty_body> sr{stream_req};
+
+        // 写请求头
+        auto write_header_visitor =
+            [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
+        {
+            boost::system::error_code ec;
+            co_await http::async_write_header(*stream_ptr, sr,
+                net::redirect_error(ec));
+            co_return ec;
+        };
+        ec = co_await boost::variant2::visit(write_header_visitor, stream_socket_);
+
+        co_return ec;
     }
 
     // -----------------------------------------------------------------------
