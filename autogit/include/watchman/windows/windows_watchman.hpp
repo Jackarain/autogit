@@ -218,10 +218,11 @@ namespace watchman {
 
 			for (const auto& excluded : m_excluded_dirs)
 			{
-				auto it = std::mismatch(
-					excluded.begin(), excluded.end(),
-					path.begin(), path.end());
-				if (it.first == excluded.end())
+				// lexically_relative 返回从 excluded 到 path 的相对路径。
+				// 若 path 在 excluded 目录下（如 excluded=/a, path=/a/b/c），
+				// 则返回 "b/c"（不以 ".." 开头）；否则返回 "../..." 或空路径。
+				auto rel = path.lexically_relative(excluded);
+				if (!rel.empty() && !rel.string().starts_with(".."))
 					return true;
 			}
 			return false;
