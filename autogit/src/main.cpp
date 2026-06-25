@@ -700,7 +700,7 @@ static void log_head_commit_info(gitpp::repo& repo)
     {
         gitpp::reference head = repo.head();
         gitpp::commit commit = repo.lookup_commit(head.target());
-        LOG_DBG << "Commit: " << commit.message();
+        LOG_DBG << "Last commit: " << commit.message();
     }
     catch (const std::exception& e)
     {
