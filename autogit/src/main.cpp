@@ -427,10 +427,60 @@ static int write_tree_and_commit(
 }
 
 /**
+ * @brief 从 .lfsconfig / .git/lfsconfig / .git/config 中读取 lfs.url。
+ *
+ * 优先级：
+ *   1. 工作目录下的 .lfsconfig
+ *   2. .git 目录下的 lfsconfig
+ *   3. .git/config
+ *   4. --lfs_push_url 命令行参数（global_lfs_push_url）
+ *
+ * @param repo  Git 仓库对象。
+ * @return std::string  读取到的 LFS URL，未找到则返回空字符串。
+ */
+static std::string get_lfs_url_from_config(const gitpp::repo& repo)
+{
+    // 尝试从 .lfsconfig 或 .git/lfsconfig 或 .git/config 中读取 lfs.url。
+    auto workdir = repo.workdir();
+    auto gitdir = repo.path();
+    std::vector<std::string> candidates;
+
+    if (!workdir.empty())
+        candidates.push_back(workdir + ".lfsconfig");
+    candidates.push_back(gitdir + "lfsconfig");
+    candidates.push_back(gitdir + "config");
+
+    for (const auto& cfg_path : candidates)
+    {
+        if (!fs::exists(cfg_path))
+            continue;
+
+        git_config* cfg = nullptr;
+        if (git_config_open_ondisk(&cfg, cfg_path.c_str()) != 0)
+            continue;
+
+        git_buf buf = {0};
+        std::string url;
+        if (git_config_get_string_buf(&buf, cfg, "lfs.url") == 0 && buf.ptr)
+        {
+            url = buf.ptr;
+            strutil::trim(url);
+        }
+        git_buf_dispose(&buf);
+        git_config_free(cfg);
+
+        if (!url.empty())
+            return url;
+    }
+
+    return global_lfs_push_url;
+}
+
+/**
  * @brief 推送 Git LFS 对象到远程服务器。
  *
  * 如果启用了 LFS，首先尝试通过 HTTP Batch API 推送 LFS 对象，
- * 推送 URL 使用 --lfs_push_url 参数
+ * 推送 URL 由 get_lfs_url_from_config() 决定。
  *
  * @param repo  Git 仓库对象。
  */
@@ -441,43 +491,8 @@ static void push_lfs_objects(gitpp::repo& repo)
         return;
 
     // 确定 LFS 推送 URL：优先使用 --lfs_push_url，
-    // 其次读取 .lfsconfig（从工作目录或 .git 目录），
-    // 最后从 remote.origin.url 推导。
-    std::string lfs_url = global_lfs_push_url;
-    if (lfs_url.empty())
-    {
-        // 尝试从 .lfsconfig 或 .git/lfsconfig 或 .git/config 中读取 lfs.url。
-        auto workdir = repo.workdir();
-        auto gitdir = repo.path();
-        std::vector<std::string> lfsconfig_candidates;
-
-        if (!workdir.empty())
-            lfsconfig_candidates.push_back(workdir + ".lfsconfig");
-        lfsconfig_candidates.push_back(gitdir + "lfsconfig");
-        lfsconfig_candidates.push_back(gitdir + "config");
-
-        for (const auto& cfg_path : lfsconfig_candidates)
-        {
-            if (!fs::exists(cfg_path))
-                continue;
-
-            git_config* cfg = nullptr;
-            if (git_config_open_ondisk(&cfg, cfg_path.c_str()) != 0)
-                continue;
-
-            git_buf buf = {0};
-            if (git_config_get_string_buf(&buf, cfg, "lfs.url") == 0 && buf.ptr)
-            {
-                lfs_url = buf.ptr;
-                strutil::trim(lfs_url);
-            }
-            git_buf_dispose(&buf);
-            git_config_free(cfg);
-
-            if (!lfs_url.empty())
-                break;
-        }
-    }
+    // 其次从 .lfsconfig / .git/lfsconfig / .git/config 中读取。
+    std::string lfs_url = get_lfs_url_from_config(repo);
 
     if (lfs_url.empty())
     {
