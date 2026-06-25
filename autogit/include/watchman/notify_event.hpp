@@ -26,6 +26,19 @@ namespace watchman {
 		rename,
 	};
 
+	inline const char* to_string(event_type type) noexcept
+	{
+		switch (type)
+		{
+		case event_type::unknown:      return "unknown";
+		case event_type::creation:     return "creation";
+		case event_type::deletion:     return "deletion";
+		case event_type::modification: return "modification";
+		case event_type::rename:       return "rename";
+		default:                       return "unknown";
+		}
+	}
+
 	struct notify_event
 	{
 		event_type type_;
