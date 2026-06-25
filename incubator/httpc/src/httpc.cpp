@@ -614,7 +614,7 @@ namespace httpc {
             }
             else
             {
-                // 没有设置 upload_handler, 发送空 chunked body
+                // 没有设置 transfer_handler, 发送空 chunked body
                 http::chunk_last last_chunk;
                 auto write_visitor =
                     [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
