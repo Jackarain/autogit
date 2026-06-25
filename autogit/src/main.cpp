@@ -799,7 +799,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
                 for (const auto& file : result)
                 {
                     std::ostringstream oss;
-                    oss << "CHG: " << (int)file.type_ << ", FILE: " << file.path_;
+                    oss << "CHG: " << watchman::to_string(file.type_) << ", FILE: " << file.path_;
                     if (!file.new_path_.empty())
                         oss << " -> " << file.new_path_;
                     XLOG_DBG << oss.str();
