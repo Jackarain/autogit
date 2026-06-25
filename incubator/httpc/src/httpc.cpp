@@ -207,6 +207,7 @@ namespace httpc {
 
     http_client::http_client(net::any_io_executor ex)
         : executor_(ex)
+        , user_agent_(default_user_agent)
     {
         // 分配保留缓存空间.
         buffer_.reserve(5 * 1024 * 1024);
@@ -327,7 +328,7 @@ namespace httpc {
 
         // 设置 User-Agent (如果未设置)
         if (request.find(http::field::user_agent) == request.end())
-            request.set(http::field::user_agent, default_user_agent);
+            request.set(http::field::user_agent, user_agent_);
 
         // 设置 Connection 头
         if (request.find(http::field::connection) == request.end())
@@ -692,6 +693,11 @@ namespace httpc {
     void http_client::set_transfer_handler(transfer_handler&& handler) noexcept
     {
         transfer_handler_ = std::move(handler);
+    }
+
+    void http_client::user_agent(const std::string& ua) noexcept
+    {
+        user_agent_ = ua;
     }
 
     bool http_client::check_certificate() const noexcept

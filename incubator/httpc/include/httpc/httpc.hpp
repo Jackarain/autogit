@@ -176,6 +176,9 @@ namespace httpc {
         // 设置传输回调函数, 用于获取传输进度.
         void set_transfer_handler(transfer_handler&& handler) noexcept;
 
+        // 设置 User-agent.
+        void user_agent(const std::string& ua) noexcept;
+
         // 检查和设置证书认证是否启用 (默认关闭).
         bool check_certificate() const noexcept;
         void check_certificate(bool check) noexcept;
@@ -221,6 +224,9 @@ namespace httpc {
         // 下载文件句柄 (RAII).
         std::unique_ptr<FILE, fclose_deleter> download_file_{
             nullptr};
+
+        // User-agent.
+        std::string user_agent_;
 
         // 证书验证开关.
         bool check_certificate_{false};
