@@ -47,6 +47,161 @@ namespace httpc {
         "Gecko/20100101 Firefox/120.0";
 
     // -----------------------------------------------------------------------
+    // 辅助函数 (匿名命名空间)
+    // -----------------------------------------------------------------------
+
+    namespace {
+
+    // 从 URL 构建 Host 头值.
+    std::string build_host_header(const urls::url_view& url)
+    {
+        std::string host_value(url.host());
+        if (url.has_port())
+        {
+            host_value += ':';
+            host_value.append(url.port().data(), url.port().size());
+        }
+        else
+        {
+            auto port = url.port_number();
+            if ((url.scheme_id() == urls::scheme::https && port != 443) ||
+                (url.scheme_id() != urls::scheme::https && port != 80))
+            {
+                host_value += ':';
+                host_value += std::to_string(port);
+            }
+        }
+        return host_value;
+    }
+
+    // 从 URL 构建请求目标 (path + query).
+    std::string build_request_target(const urls::url_view& url)
+    {
+        std::string target(url.encoded_path());
+        if (url.has_query())
+        {
+            target += '?';
+            target.append(url.encoded_query().data(),
+                          url.encoded_query().size());
+        }
+        if (target.empty())
+            target = "/";
+        return target;
+    }
+
+    // 在任意 body 类型的请求上设置来自 URL 的目标和 Host.
+    template<typename Body>
+    void setup_request_from_url(http::request<Body>& req,
+        const urls::url_view& url)
+    {
+        req.target(build_request_target(url));
+        if (req.find(http::field::host) == req.end())
+            req.set(http::field::host, build_host_header(url));
+    }
+
+    // 将源请求的通用头部复制到目标请求.
+    template<typename Body>
+    void copy_request_headers(http::request<Body>& req,
+        const http_request& source)
+    {
+        // Host
+        {
+            auto it = source.find(http::field::host);
+            if (it != source.end())
+                req.set(http::field::host, it->value());
+        }
+
+        // User-Agent
+        {
+            auto it = source.find(http::field::user_agent);
+            if (it != source.end())
+                req.set(http::field::user_agent, it->value());
+            else
+                req.set(http::field::user_agent, default_user_agent);
+        }
+
+        // Connection
+        {
+            auto it = source.find(http::field::connection);
+            if (it != source.end())
+                req.set(http::field::connection, it->value());
+            else
+                req.keep_alive(false);
+        }
+
+        // 拷贝用户自定义请求头 (排除已处理字段).
+        for (auto const& h : source)
+        {
+            if (h.name() != http::field::host &&
+                h.name() != http::field::user_agent &&
+                h.name() != http::field::connection)
+            {
+                req.set(h.name_string(), h.value());
+            }
+        }
+    }
+
+    // 重定向循环: 连接→发送→读取→重定向检查.
+    template<typename SendFunc>
+    net::awaitable<http_result> async_perform_loop(
+        http_client& client,
+        const std::string& url,
+        SendFunc&& send)
+    {
+        boost::system::error_code ec;
+        std::string current_url = url;
+        int redirect_count = 0;
+
+        while (true)
+        {
+            auto url_result = urls::parse_uri_reference(current_url);
+            if (!url_result)
+                co_return url_result.error();
+            auto url_view = *url_result;
+
+            ec = co_await client.async_connect(url_view);
+            if (ec)
+                co_return ec;
+
+            ec = co_await send(url_view);
+            if (ec)
+                co_return ec;
+
+            auto result = co_await client.async_read_response();
+            if (!result)
+                co_return result.error();
+
+            auto& resp = *result;
+
+            if (client.follow_redirect() && redirect_count < client.max_redirects())
+            {
+                auto status = resp.result_int();
+                if (status == 301 || status == 302 ||
+                    status == 303 || status == 307 || status == 308)
+                {
+                    auto location = resp.find(http::field::location);
+                    if (location != resp.end())
+                    {
+                        std::string new_url(location->value());
+                        auto new_url_result = urls::parse_uri_reference(new_url);
+                        if (new_url_result)
+                        {
+                            current_url = new_url;
+                            redirect_count++;
+                            client.close();
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            co_return result;
+        }
+    }
+
+    } // anonymous namespace
+
+    // -----------------------------------------------------------------------
     // 构造 / 析构
     // -----------------------------------------------------------------------
 
@@ -167,39 +322,8 @@ namespace httpc {
         // 构造请求副本, 以便修改目标 / Host
         http_request request = req;
 
-        // 设置请求目标 (path + query)
-        std::string target(url.encoded_path());
-        if (url.has_query())
-        {
-            target += '?';
-            target.append(url.encoded_query().data(),
-                          url.encoded_query().size());
-        }
-        if (target.empty())
-            target = "/";
-        request.target(target);
-
-        // 设置 Host 头
-        if (request.find(http::field::host) == request.end())
-        {
-            std::string host_value(url.host());
-            if (url.has_port())
-            {
-                host_value += ':';
-                host_value.append(url.port().data(), url.port().size());
-            }
-            else
-            {
-                auto port = url.port_number();
-                if ((url.scheme_id() == urls::scheme::https && port != 443) ||
-                    (url.scheme_id() != urls::scheme::https && port != 80))
-                {
-                    host_value += ':';
-                    host_value += std::to_string(port);
-                }
-            }
-            request.set(http::field::host, host_value);
-        }
+        // 使用辅助函数设置目标路径和 Host 头.
+        setup_request_from_url(request, url);
 
         // 设置 User-Agent (如果未设置)
         if (request.find(http::field::user_agent) == request.end())
@@ -268,17 +392,7 @@ namespace httpc {
             // 分块读取 body
             while (!parser.is_done())
             {
-                // 设置超时
-                auto set_timeout_visitor =
-                    [this](auto& stream_ptr)
-                {
-                    using stream_t = std::decay_t<decltype(*stream_ptr)>;
-                    if constexpr (std::is_same_v<stream_t, ssl_stream>)
-                        stream_ptr->next_layer().expires_after(timeout_);
-                    else
-                        stream_ptr->expires_after(timeout_);
-                };
-                boost::variant2::visit(set_timeout_visitor, stream_socket_);
+                set_stream_timeout();
 
                 // 读一块
                 auto read_some_visitor =
@@ -355,63 +469,13 @@ namespace httpc {
     net::awaitable<http_result> http_client::async_perform(
         const std::string& url, const http_request& req) noexcept
     {
-        boost::system::error_code ec;
-        std::string current_url = url;
-        int redirect_count = 0;
-
-        while (true)
+        auto send_func =
+            [&](const urls::url_view& url_view) -> net::awaitable<boost::system::error_code>
         {
-            // 解析 URL
-            auto url_result = urls::parse_uri_reference(current_url);
-            if (!url_result)
-            {
-                co_return url_result.error();
-            }
-            auto url_view = *url_result;
+            co_return co_await async_send_request(url_view, req);
+        };
 
-            // 连接
-            ec = co_await async_connect(url_view);
-            if (ec)
-                co_return ec;
-
-            // 发送请求
-            ec = co_await async_send_request(url_view, req);
-            if (ec)
-                co_return ec;
-
-            // 读取响应
-            auto result = co_await async_read_response();
-            if (!result)
-                co_return result.error();
-
-            auto& resp = *result;
-
-            // 检查是否需要重定向
-            if (follow_redirect_ && redirect_count < max_redirects_)
-            {
-                auto status = resp.result_int();
-                if (status == 301 || status == 302 ||
-                    status == 303 || status == 307 || status == 308)
-                {
-                    auto location = resp.find(http::field::location);
-                    if (location != resp.end())
-                    {
-                        std::string new_url(location->value());
-                        // 如果是相对 URL, 拼接
-                        auto new_url_result = urls::parse_uri_reference(new_url);
-                        if (new_url_result)
-                        {
-                            current_url = new_url;
-                            redirect_count++;
-                            close();
-                            continue;
-                        }
-                    }
-                }
-            }
-
-            co_return result;
-        }
+        co_return co_await async_perform_loop(*this, url, std::move(send_func));
     }
 
     // -----------------------------------------------------------------------
@@ -423,93 +487,18 @@ namespace httpc {
         const std::string& file_path,
         const http_request& req) noexcept
     {
-        boost::system::error_code ec;
-        std::string current_url = url;
-        int redirect_count = 0;
-
-        while (true)
+        auto send_func =
+            [&](const urls::url_view& url_view) -> net::awaitable<boost::system::error_code>
         {
-            // 解析 URL
-            auto url_result = urls::parse_uri_reference(current_url);
-            if (!url_result)
-                co_return url_result.error();
-            auto url_view = *url_result;
-
-            // 连接
-            ec = co_await async_connect(url_view);
-            if (ec)
-                co_return ec;
+            boost::system::error_code ec;
 
             // 构造 file_body 请求
             http::request<http::file_body> file_req{
                 req.method(), req.target(), req.version()};
 
-            // 设置请求目标 (path + query)
-            {
-                std::string target(url_view.encoded_path());
-                if (url_view.has_query())
-                {
-                    target += '?';
-                    target.append(url_view.encoded_query().data(),
-                                  url_view.encoded_query().size());
-                }
-                if (target.empty())
-                    target = "/";
-                file_req.target(target);
-            }
-
-            // 设置 Host 头
-            if (req.find(http::field::host) == req.end())
-            {
-                std::string host_value(url_view.host());
-                if (url_view.has_port())
-                {
-                    host_value += ':';
-                    host_value.append(url_view.port().data(),
-                                      url_view.port().size());
-                }
-                else
-                {
-                    auto port = url_view.port_number();
-                    if ((url_view.scheme_id() == urls::scheme::https && port != 443) ||
-                        (url_view.scheme_id() != urls::scheme::https && port != 80))
-                    {
-                        host_value += ':';
-                        host_value += std::to_string(port);
-                    }
-                }
-                file_req.set(http::field::host, host_value);
-            }
-            else
-            {
-                file_req.set(http::field::host,
-                    req.find(http::field::host)->value());
-            }
-
-            // 设置 User-Agent (如果未设置)
-            if (req.find(http::field::user_agent) == req.end())
-                file_req.set(http::field::user_agent, default_user_agent);
-            else
-                file_req.set(http::field::user_agent,
-                    req.find(http::field::user_agent)->value());
-
-            // 设置 Connection 头
-            if (req.find(http::field::connection) == req.end())
-                file_req.keep_alive(false);
-            else
-                file_req.set(http::field::connection,
-                    req.find(http::field::connection)->value());
-
-            // 拷贝用户自定义请求头 (排除已处理字段).
-            for (auto const& h : req)
-            {
-                if (h.name() != http::field::host &&
-                    h.name() != http::field::user_agent &&
-                    h.name() != http::field::connection)
-                {
-                    file_req.set(h.name_string(), h.value());
-                }
-            }
+            // 使用辅助函数设置目标路径, Host, User-Agent, Connection 等.
+            setup_request_from_url(file_req, url_view);
+            copy_request_headers(file_req, req);
 
             // 打开文件
             http::file_body::value_type file;
@@ -529,41 +518,11 @@ namespace httpc {
                 co_return ec;
             };
             ec = co_await boost::variant2::visit(send_visitor, stream_socket_);
-            if (ec)
-                co_return ec;
 
-            // 读取响应
-            auto result = co_await async_read_response();
-            if (!result)
-                co_return result.error();
+            co_return ec;
+        };
 
-            auto& resp = *result;
-
-            // 检查是否需要重定向
-            if (follow_redirect_ && redirect_count < max_redirects_)
-            {
-                auto status = resp.result_int();
-                if (status == 301 || status == 302 ||
-                    status == 303 || status == 307 || status == 308)
-                {
-                    auto location = resp.find(http::field::location);
-                    if (location != resp.end())
-                    {
-                        std::string new_url(location->value());
-                        auto new_url_result = urls::parse_uri_reference(new_url);
-                        if (new_url_result)
-                        {
-                            current_url = new_url;
-                            redirect_count++;
-                            close();
-                            continue;
-                        }
-                    }
-                }
-            }
-
-            co_return result;
-        }
+        co_return co_await async_perform_loop(*this, url, std::move(send_func));
     }
 
     // -----------------------------------------------------------------------
@@ -574,93 +533,18 @@ namespace httpc {
         const std::string& url,
         const http_request& req) noexcept
     {
-        boost::system::error_code ec;
-        std::string current_url = url;
-        int redirect_count = 0;
-
-        while (true)
+        auto send_func =
+            [&](const urls::url_view& url_view) -> net::awaitable<boost::system::error_code>
         {
-            // 解析 URL
-            auto url_result = urls::parse_uri_reference(current_url);
-            if (!url_result)
-                co_return url_result.error();
-            auto url_view = *url_result;
-
-            // 连接
-            ec = co_await async_connect(url_view);
-            if (ec)
-                co_return ec;
+            boost::system::error_code ec;
 
             // 构造请求 (使用 empty_body, 手动写入 chunked body)
             http::request<http::empty_body> stream_req{
                 req.method(), req.target(), req.version()};
 
-            // 设置请求目标 (path + query)
-            {
-                std::string target(url_view.encoded_path());
-                if (url_view.has_query())
-                {
-                    target += '?';
-                    target.append(url_view.encoded_query().data(),
-                                  url_view.encoded_query().size());
-                }
-                if (target.empty())
-                    target = "/";
-                stream_req.target(target);
-            }
-
-            // 设置 Host 头
-            if (req.find(http::field::host) == req.end())
-            {
-                std::string host_value(url_view.host());
-                if (url_view.has_port())
-                {
-                    host_value += ':';
-                    host_value.append(url_view.port().data(),
-                                      url_view.port().size());
-                }
-                else
-                {
-                    auto port = url_view.port_number();
-                    if ((url_view.scheme_id() == urls::scheme::https && port != 443) ||
-                        (url_view.scheme_id() != urls::scheme::https && port != 80))
-                    {
-                        host_value += ':';
-                        host_value += std::to_string(port);
-                    }
-                }
-                stream_req.set(http::field::host, host_value);
-            }
-            else
-            {
-                stream_req.set(http::field::host,
-                    req.find(http::field::host)->value());
-            }
-
-            // 设置 User-Agent (如果未设置)
-            if (req.find(http::field::user_agent) == req.end())
-                stream_req.set(http::field::user_agent, default_user_agent);
-            else
-                stream_req.set(http::field::user_agent,
-                    req.find(http::field::user_agent)->value());
-
-            // 设置 Connection 头
-            if (req.find(http::field::connection) == req.end())
-                stream_req.keep_alive(false);
-            else
-                stream_req.set(http::field::connection,
-                    req.find(http::field::connection)->value());
-
-            // 拷贝用户自定义请求头 (排除已处理字段).
-            for (auto const& h : req)
-            {
-                if (h.name() != http::field::host &&
-                    h.name() != http::field::user_agent &&
-                    h.name() != http::field::connection)
-                {
-                    stream_req.set(h.name_string(), h.value());
-                }
-            }
+            // 使用辅助函数设置目标路径, Host, User-Agent, Connection 等.
+            setup_request_from_url(stream_req, url_view);
+            copy_request_headers(stream_req, req);
 
             // 设置 chunked 传输编码
             stream_req.chunked(true);
@@ -692,17 +576,7 @@ namespace httpc {
                     if (n <= 0)
                         break;
 
-                    // 设置超时
-                    auto set_timeout_visitor =
-                        [this](auto& stream_ptr)
-                    {
-                        using stream_t = std::decay_t<decltype(*stream_ptr)>;
-                        if constexpr (std::is_same_v<stream_t, ssl_stream>)
-                            stream_ptr->next_layer().expires_after(timeout_);
-                        else
-                            stream_ptr->expires_after(timeout_);
-                    };
-                    boost::variant2::visit(set_timeout_visitor, stream_socket_);
+                    set_stream_timeout();
 
                     // 写入 chunk
                     auto chunk = http::chunk_body(
@@ -720,19 +594,7 @@ namespace httpc {
                         co_return ec;
                 }
 
-                // 设置超时
-                {
-                    auto set_timeout_visitor =
-                        [this](auto& stream_ptr)
-                    {
-                        using stream_t = std::decay_t<decltype(*stream_ptr)>;
-                        if constexpr (std::is_same_v<stream_t, ssl_stream>)
-                            stream_ptr->next_layer().expires_after(timeout_);
-                        else
-                            stream_ptr->expires_after(timeout_);
-                    };
-                    boost::variant2::visit(set_timeout_visitor, stream_socket_);
-                }
+                set_stream_timeout();
 
                 // 写入 final chunk (0\r\n\r\n)
                 {
@@ -767,43 +629,28 @@ namespace httpc {
                     co_return ec;
             }
 
-            // 读取响应
-            auto result = co_await async_read_response();
-            if (!result)
-                co_return result.error();
+            co_return ec;
+        };
 
-            auto& resp = *result;
-
-            // 检查是否需要重定向
-            if (follow_redirect_ && redirect_count < max_redirects_)
-            {
-                auto status = resp.result_int();
-                if (status == 301 || status == 302 ||
-                    status == 303 || status == 307 || status == 308)
-                {
-                    auto location = resp.find(http::field::location);
-                    if (location != resp.end())
-                    {
-                        std::string new_url(location->value());
-                        auto new_url_result = urls::parse_uri_reference(new_url);
-                        if (new_url_result)
-                        {
-                            current_url = new_url;
-                            redirect_count++;
-                            close();
-                            continue;
-                        }
-                    }
-                }
-            }
-
-            co_return result;
-        }
+        co_return co_await async_perform_loop(*this, url, std::move(send_func));
     }
 
     // -----------------------------------------------------------------------
-    // 辅助: 关闭连接
+    // 辅助: 设置超时 / 关闭连接
     // -----------------------------------------------------------------------
+
+    void http_client::set_stream_timeout()
+    {
+        auto visitor = [this](auto& stream_ptr)
+        {
+            using stream_t = std::decay_t<decltype(*stream_ptr)>;
+            if constexpr (std::is_same_v<stream_t, ssl_stream>)
+                stream_ptr->next_layer().expires_after(timeout_);
+            else
+                stream_ptr->expires_after(timeout_);
+        };
+        boost::variant2::visit(visitor, stream_socket_);
+    }
 
     void http_client::close()
     {

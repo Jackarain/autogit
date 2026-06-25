@@ -193,6 +193,10 @@ namespace httpc {
         net::any_io_executor get_executor() noexcept;
 
     private:
+        // 辅助: 设置当前流的超时.
+        void set_stream_timeout();
+
+    private:
         // 执行器.
         net::any_io_executor executor_;
 
