@@ -45,8 +45,6 @@ namespace fs = boost::filesystem;
 #include "autogit/scoped_exit.hpp"
 #include "autogit/strutil.hpp"
 
-#include "watchman/watchman.hpp"
-
 #include "gitpp/gitpp.hpp"
 #include "gitpp/lfs.hpp"
 
@@ -729,14 +727,12 @@ static void log_head_commit_info(gitpp::repo& repo)
  * 此协程是 autogit 的核心逻辑，按以下流程循环执行：
  * 1. 确保 Git 仓库已初始化。
  * 2. 打开仓库，配置 LFS，记录 HEAD 信息。
- * 3. 创建文件系统监控器（watchman），监听工作目录变更。
- * 4. 循环：
+ * 3. 循环：
  *    a. 执行 gitwork() 完成暂存→提交→推送。
- *    b. 等待文件系统变更事件（可取消）。
- *    c. 如有 check_interval，等待间隔时间（可取消）。
- * 5. 收到取消信号（SIGINT/SIGTERM）时正常退出。
+ *    b. 如有 check_interval，等待间隔时间（可取消）。
+ * 4. 收到取消信号（SIGINT/SIGTERM）时正常退出。
  *
- * @param check_interval  两次仓库检查之间的间隔秒数（≤0 表示不等待）。
+ * @param check_interval  两次仓库检查之间的间隔秒数（≤0 表示不等待，会持续循环）。
  * @param git_dir         被监控的 Git 仓库路径。
  * @param cancel_slot     Asio 取消槽，用于外部触发取消操作。
  * @return net::awaitable<int> 协程返回值，EXIT_SUCCESS 或 EXIT_FAILURE。
@@ -764,11 +760,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
         setup_lfs_for_repository(repo);
         log_head_commit_info(repo);
 
-        // 步骤3：创建文件系统监控器，监听目录变更。
-        watchman::watcher monitor(executor,
-            fs::path(git_dir), {fs::path(repo.path())});
-
-        // 步骤4：主循环 — 监听变更 → 执行 Git 操作。
+        // 步骤3：主循环 — 定时检查并执行 Git 操作。
         while (true)
         {
             // 4a. 执行一次 Git 工作流程（暂存/提交/推送）。
@@ -781,46 +773,20 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
                 XLOG_ERR << "gitwork, exception: " << e.what();
             }
 
-            // 4b. 等待文件系统变更通知（可被取消信号中断）。
+            // 4b. 等待指定间隔后再进入下一轮（≤0 时默认等待1秒，避免忙循环）。
+            auto interval = check_interval > 0 ? check_interval : 1;
+            boost::system::error_code ec;
+            net::steady_timer timer(executor);
+
+            timer.expires_after(std::chrono::seconds(interval));
+            co_await timer.async_wait(
+                net::bind_cancellation_slot(cancel_slot,
+                    net::redirect_error(net::use_awaitable, ec)));
+
+            if (ec == boost::asio::error::operation_aborted)
             {
-                boost::system::error_code ec;
-                auto result = co_await monitor.async_wait(
-                    net::bind_cancellation_slot(cancel_slot,
-                        net::redirect_error(net::use_awaitable, ec)));
-
-                // 操作被取消（收到终止信号），正常退出循环。
-                if (ec == boost::asio::error::operation_aborted)
-                {
-                    XLOG_DBG << "git_work_loop cancelled normally";
-                    break;
-                }
-
-                // 记录文件系统变更事件到调试日志。
-                for (const auto& file : result)
-                {
-                    std::ostringstream oss;
-                    oss << "CHG: " << watchman::to_string(file.type_) << ", FILE: " << file.path_;
-                    if (!file.new_path_.empty())
-                        oss << " -> " << file.new_path_;
-                    XLOG_DBG << oss.str();
-                }
-            }
-
-            // 4c. 如果配置了检查间隔，等待指定时间后再进入下一轮。
-            if (check_interval > 0)
-            {
-                boost::system::error_code ec;
-                net::steady_timer timer(executor);
-                timer.expires_after(std::chrono::seconds(check_interval));
-                co_await timer.async_wait(
-                    net::bind_cancellation_slot(cancel_slot,
-                        net::redirect_error(net::use_awaitable, ec)));
-
-                if (ec == boost::asio::error::operation_aborted)
-                {
-                    XLOG_DBG << "git_work_loop cancelled normally";
-                    break;
-                }
+                XLOG_DBG << "git_work_loop cancelled normally";
+                break;
             }
         }
 
