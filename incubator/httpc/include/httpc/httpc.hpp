@@ -52,15 +52,6 @@ namespace httpc {
     using http_result = result<http_response>;
     using verb = http::verb;
 
-    // 自定义 fclose 删除器.
-    struct fclose_deleter
-    {
-        void operator()(FILE* f) const noexcept
-        {
-            std::fclose(f);
-        }
-    };
-
     class http_client
     {
     public:
@@ -221,6 +212,14 @@ namespace httpc {
         // 传输回调.
         transfer_handler transfer_handler_;
 
+        // 自定义 fclose 删除器.
+        struct fclose_deleter
+        {
+            void operator()(FILE* f) const noexcept
+            {
+                std::fclose(f);
+            }
+        };
         // 下载文件句柄 (RAII).
         std::unique_ptr<FILE, fclose_deleter> download_file_{
             nullptr};
