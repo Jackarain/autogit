@@ -916,12 +916,29 @@ static void lfs_stream_free(git_writestream* base)
 static int lfs_filter_check(
     git_filter* /*self*/,
     void** /*payload*/,
-    const git_filter_source* /*src*/,
+    const git_filter_source* src,
     const char** /*attr_values*/)
 {
-    // 对于 clean 和 smudge，如果 filter=lfs 属性已设置，
-    // 我们始终接受。clean 模式下，stream 会将大文件转换为指针；
-    // smudge 模式下，如果内容不是指针文件，stream 会透传。
+    // 对于 clean 模式，如果文件大小为 0，则不使用 LFS
+    auto mode = git_filter_source_mode(src);
+    if (mode == GIT_FILTER_CLEAN) {
+        auto repo = git_filter_source_repo(src);
+        const char* workdir = repo ? git_repository_workdir(repo) : nullptr;
+        const char* path = git_filter_source_path(src);
+        if (workdir && path) {
+            std::filesystem::path full_path =
+                std::filesystem::path(workdir) / path;
+            std::error_code ec;
+            auto sz = std::filesystem::file_size(full_path, ec);
+            if (!ec && sz == 0) {
+                return GIT_PASSTHROUGH;
+            }
+        }
+    }
+
+    // 对于 smudge 或非零大小的 clean，始终接受。
+    // clean 模式下 stream 会将大文件转换为指针；
+    // smudge 模式下如果内容不是指针文件，stream 会透传。
     return 0;
 }
 
