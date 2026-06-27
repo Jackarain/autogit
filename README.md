@@ -43,6 +43,7 @@
 - **多方式 LFS 模式配置**: 支持通过 `.gitattributes` 和命令行 `--lfs_pattern` 参数指定 LFS 文件匹配模式（glob 通配符）
 - **HTTP Batch API 推送**: 通过 LFS 批量 API 直接上传 LFS 对象到远程服务器
 - **灵活的推送 URL**: 支持通过 `--lfs_push_url` 指定 LFS 对象推送地址
+- **LFS 服务器**: 配套 LFS 服务器可使用 [avplayer/httpd](https://github.com/avplayer/httpd)
 
 ### ⚙️ 灵活配置
 
@@ -137,7 +138,7 @@ docker run -d \
 | `--repository` | — | 要监控的 Git 仓库路径 |
 | `--config` | `autogit.conf` | 配置文件路径 |
 | `--check_interval` | `60` | 检查间隔（秒） |
-| `--commit_msg` | `Commit by autogit` | 自定义提交信息 |
+| `--commit_msg` | — | 自定义提交信息，未指定时自动根据时间生成提交信息 |
 | `--force_push` | `false` | 启用强制推送 |
 | `--git_author` | — | Git 提交作者名称 |
 | `--git_email` | — | Git 提交作者邮箱 |
@@ -146,7 +147,7 @@ docker run -d \
 | `--http_password` | — | HTTP 认证密码 |
 | `--ssh_pubkey` | — | SSH 公钥路径 |
 | `--ssh_privkey` | — | SSH 私钥路径 |
-| `--ssh_passphrase` | — | SSH 密钥密码短语 |
+| `--ssh_passphrase` | — | SSH 密钥密码 |
 | `--quiet` | `false` | 静默模式 |
 | `--log_dir` | — | 日志文件目录 |
 | `--lfs` | `false` | 启用 Git LFS 支持，匹配 `.gitattributes` 中 LFS 模式的文件将以指针文件存储 |

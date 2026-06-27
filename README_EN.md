@@ -43,6 +43,7 @@
 - **Flexible Pattern Configuration**: Supports LFS file patterns via `.gitattributes` and command-line `--lfs_pattern` (glob wildcards)
 - **HTTP Batch API Upload**: Pushes LFS objects directly to remote servers via LFS Batch API
 - **Configurable Push URL**: Supports a dedicated LFS push URL via `--lfs_push_url`
+- **LFS Server**: The companion LFS server can be [avplayer/httpd](https://github.com/avplayer/httpd)
 
 ### ⚙️ Flexible Configuration
 
@@ -137,7 +138,7 @@ docker run -d \
 | `--repository` | — | Path to the Git repository to watch |
 | `--config` | `autogit.conf` | Path to configuration file |
 | `--check_interval` | `60` | Check interval in seconds |
-| `--commit_msg` | `Commit by autogit` | Custom commit message |
+| `--commit_msg` | — | Custom commit message; auto-generated based on time if not specified |
 | `--force_push` | `false` | Enable force push |
 | `--git_author` | — | Git commit author name |
 | `--git_email` | — | Git commit author email |
