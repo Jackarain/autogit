@@ -6,7 +6,7 @@
 -DLIBODB_BUILD2
 -D_DEBUG
 -Iautogit/include
--Iincubator/httpd/include
+-Iincubator/httpc/include
 -Iincubator/gitpp/include
 -Ithird_party/fmt/include
 -DBOOST_ASIO_HAS_CO_AWAIT
