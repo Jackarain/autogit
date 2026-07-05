@@ -23,6 +23,7 @@ target_link_libraries(gitpp
 	PRIVATE
 		httpc
 		boost_json
+		OpenSSL::Crypto
 )
 
 # Require C++20  (for std::source_location, std::span, spaceship operator, etc.)

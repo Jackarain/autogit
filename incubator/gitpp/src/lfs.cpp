@@ -1,6 +1,12 @@
-// ============================================================================
-// gitpp/lfs.cpp  --  gitpp 的 Git LFS 支持（实现）
-// ============================================================================
+//
+// lfs.cpp
+// ~~~~~~~
+//
+// Copyright (c) 2026 Jack (jack dot wgm at gmail dot com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
 
 #include "gitpp/lfs.hpp"
 
@@ -21,12 +27,14 @@
 #include <unordered_set>
 #include <vector>
 
-#include <boost/asio/io_context.hpp>
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/use_future.hpp>
 #include <boost/asio/detached.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/use_future.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/json.hpp>
+
+#include <openssl/evp.h>
 
 #ifdef _WIN32
 #  include <process.h>
@@ -34,210 +42,83 @@
 #  include <unistd.h>
 #endif
 
+
 namespace gitpp {
 namespace lfs {
 
-// ============================================================================
-// SHA-256 辅助函数（无外部依赖）
-// ============================================================================
+// -----------------------------------------------------------------------
+// 辅助函数 (匿名命名空间)
+// -----------------------------------------------------------------------
 
 namespace {
 
-// 用于计算 LFS OID 的最小 SHA-256 实现。
-// 这样可以避免引入额外的加密依赖。
-struct sha256_ctx {
-    uint32_t state[8];
-    uint64_t count;
-    unsigned char buffer[64];
-    unsigned int buf_len;
-};
-
-static const uint32_t K[64] = {
-    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
-    0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
-    0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
-    0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
-    0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
-    0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
-    0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
-    0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
-    0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-};
-
-static inline uint32_t rotr(uint32_t x, uint32_t n) {
-    return (x >> n) | (x << (32 - n));
-}
-
-static inline uint32_t ch(uint32_t x, uint32_t y, uint32_t z) {
-    return (x & y) ^ (~x & z);
-}
-
-static inline uint32_t maj(uint32_t x, uint32_t y, uint32_t z) {
-    return (x & y) ^ (x & z) ^ (y & z);
-}
-
-static inline uint32_t sigma0(uint32_t x) {
-    return rotr(x, 2) ^ rotr(x, 13) ^ rotr(x, 22);
-}
-
-static inline uint32_t sigma1(uint32_t x) {
-    return rotr(x, 6) ^ rotr(x, 11) ^ rotr(x, 25);
-}
-
-static inline uint32_t gamma0(uint32_t x) {
-    return rotr(x, 7) ^ rotr(x, 18) ^ (x >> 3);
-}
-
-static inline uint32_t gamma1(uint32_t x) {
-    return rotr(x, 17) ^ rotr(x, 19) ^ (x >> 10);
-}
-
-static void sha256_init(sha256_ctx* ctx) {
-    ctx->state[0] = 0x6a09e667;
-    ctx->state[1] = 0xbb67ae85;
-    ctx->state[2] = 0x3c6ef372;
-    ctx->state[3] = 0xa54ff53a;
-    ctx->state[4] = 0x510e527f;
-    ctx->state[5] = 0x9b05688c;
-    ctx->state[6] = 0x1f83d9ab;
-    ctx->state[7] = 0x5be0cd19;
-    ctx->count = 0;
-    ctx->buf_len = 0;
-}
-
-static void sha256_transform(sha256_ctx* ctx, const unsigned char* block) {
-    uint32_t W[64];
-    for (int t = 0; t < 16; ++t) {
-        W[t] = ((uint32_t)block[t * 4]) << 24 |
-               ((uint32_t)block[t * 4 + 1]) << 16 |
-               ((uint32_t)block[t * 4 + 2]) << 8 |
-               ((uint32_t)block[t * 4 + 3]);
-    }
-    for (int t = 16; t < 64; ++t) {
-        W[t] = gamma1(W[t-2]) + W[t-7] + gamma0(W[t-15]) + W[t-16];
-    }
-
-    uint32_t a = ctx->state[0];
-    uint32_t b = ctx->state[1];
-    uint32_t c = ctx->state[2];
-    uint32_t d = ctx->state[3];
-    uint32_t e = ctx->state[4];
-    uint32_t f = ctx->state[5];
-    uint32_t g = ctx->state[6];
-    uint32_t h = ctx->state[7];
-
-    for (int t = 0; t < 64; ++t) {
-        uint32_t T1 = h + sigma1(e) + ch(e, f, g) + K[t] + W[t];
-        uint32_t T2 = sigma0(a) + maj(a, b, c);
-        h = g;
-        g = f;
-        f = e;
-        e = d + T1;
-        d = c;
-        c = b;
-        b = a;
-        a = T1 + T2;
-    }
-
-    ctx->state[0] += a;
-    ctx->state[1] += b;
-    ctx->state[2] += c;
-    ctx->state[3] += d;
-    ctx->state[4] += e;
-    ctx->state[5] += f;
-    ctx->state[6] += g;
-    ctx->state[7] += h;
-}
-
-static void sha256_update(sha256_ctx* ctx,
-                          const unsigned char* data, size_t len) {
-    ctx->count += len;
-    while (len > 0) {
-        size_t space = 64 - ctx->buf_len;
-        size_t copy = (len < space) ? len : space;
-        std::memcpy(ctx->buffer + ctx->buf_len, data, copy);
-        ctx->buf_len += (unsigned int)copy;
-        data += copy;
-        len -= copy;
-        if (ctx->buf_len == 64) {
-            sha256_transform(ctx, ctx->buffer);
-            ctx->buf_len = 0;
-        }
-    }
-}
-
-static void sha256_final(sha256_ctx* ctx, unsigned char* hash) {
-    uint64_t bits = ctx->count * 8;
-    // 追加 0x80
-    unsigned char pad = 0x80;
-    sha256_update(ctx, &pad, 1);
-    // 用零填充
-    while (ctx->buf_len != 56) {
-        unsigned char zero = 0;
-        sha256_update(ctx, &zero, 1);
-    }
-    // 追加长度（64 位大端序）
-    for (int i = 7; i >= 0; --i) {
-        unsigned char b = (unsigned char)(bits >> (i * 8));
-        sha256_update(ctx, &b, 1);
-    }
-    for (int i = 0; i < 8; ++i) {
-        hash[i * 4]     = (unsigned char)(ctx->state[i] >> 24);
-        hash[i * 4 + 1] = (unsigned char)(ctx->state[i] >> 16);
-        hash[i * 4 + 2] = (unsigned char)(ctx->state[i] >> 8);
-        hash[i * 4 + 3] = (unsigned char)(ctx->state[i]);
-    }
-}
-
-static std::string sha256_hex(const unsigned char* hash) {
+static std::string sha256_hex(const unsigned char hash[32])
+{
     static const char hex[] = "0123456789abcdef";
     std::string result(64, '\0');
-    for (int i = 0; i < 32; ++i) {
+    for (int i = 0; i < 32; ++i)
+    {
         result[i * 2]     = hex[hash[i] >> 4];
         result[i * 2 + 1] = hex[hash[i] & 0xf];
     }
     return result;
 }
 
-static std::string file_sha256(const std::filesystem::path& path) {
+static std::string file_sha256(const std::filesystem::path& path)
+{
     std::ifstream file(path, std::ios::binary);
     if (!file)
         return {};
 
-    sha256_ctx ctx;
-    sha256_init(&ctx);
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    if (!ctx)
+        return {};
+
+    if (EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) != 1)
+    {
+        EVP_MD_CTX_free(ctx);
+        return {};
+    }
 
     unsigned char buf[8192];
     while (file.read(reinterpret_cast<char*>(buf), sizeof(buf)) ||
-           file.gcount() > 0) {
-        sha256_update(&ctx, buf, (size_t)file.gcount());
+           file.gcount() > 0)
+    {
+        if (EVP_DigestUpdate(ctx, buf,
+                static_cast<size_t>(file.gcount())) != 1)
+        {
+            EVP_MD_CTX_free(ctx);
+            return {};
+        }
     }
 
     unsigned char hash[32];
-    sha256_final(&ctx, hash);
+    unsigned int len = 0;
+    if (EVP_DigestFinal_ex(ctx, hash, &len) != 1)
+    {
+        EVP_MD_CTX_free(ctx);
+        return {};
+    }
+    EVP_MD_CTX_free(ctx);
+
     return sha256_hex(hash);
 }
 
-static std::int64_t get_file_size(const std::filesystem::path& path) {
+static std::int64_t get_file_size(const std::filesystem::path& path)
+{
     std::error_code ec;
     auto sz = std::filesystem::file_size(path, ec);
     return ec ? -1 : static_cast<std::int64_t>(sz);
 }
 
-} // 匿名命名空间
+} // anonymous namespace
 
-// ============================================================================
+// -----------------------------------------------------------------------
 // pointer（指针）
-// ============================================================================
+// -----------------------------------------------------------------------
 
-std::string pointer::encode() const {
+std::string pointer::encode() const
+{
     std::string result;
     result.reserve(128);
     result += "version ";
@@ -252,13 +133,15 @@ std::string pointer::encode() const {
     return result;
 }
 
-std::optional<pointer> pointer::decode(std::string_view text) noexcept {
+std::optional<pointer> pointer::decode(std::string_view text) noexcept
+{
     // 必须恰好有三行。
     std::string_view remaining = text;
     std::string lines[3];
     int line_count = 0;
 
-    while (!remaining.empty() && line_count < 3) {
+    while (!remaining.empty() && line_count < 3)
+    {
         auto pos = remaining.find('\n');
         if (pos == std::string_view::npos)
             break;
@@ -283,7 +166,8 @@ std::optional<pointer> pointer::decode(std::string_view text) noexcept {
     std::string oid_hex = lines[1].substr(oid_prefix.size());
     if (oid_hex.size() != 64)
         return std::nullopt;
-    for (char c : oid_hex) {
+    for (char c : oid_hex)
+    {
         if (!std::isxdigit(static_cast<unsigned char>(c)))
             return std::nullopt;
     }
@@ -325,12 +209,14 @@ std::optional<pointer> pointer::create_from_file(
     return pointer(oid_hex, sz);
 }
 
-bool pointer::is_pointer(std::string_view text) noexcept {
+bool pointer::is_pointer(std::string_view text) noexcept
+{
     auto ptr = decode(text);
     return ptr.has_value();
 }
 
-bool pointer::is_pointer_file(const std::filesystem::path& path) {
+bool pointer::is_pointer_file(const std::filesystem::path& path)
+{
     std::ifstream file(path);
     if (!file)
         return false;
@@ -344,9 +230,9 @@ bool pointer::is_pointer_file(const std::filesystem::path& path) {
     return is_pointer(content);
 }
 
-// ============================================================================
+// -----------------------------------------------------------------------
 // object_store（对象存储）
-// ============================================================================
+// -----------------------------------------------------------------------
 
 object_store::object_store(std::filesystem::path gitdir)
     : objects_root_(std::move(gitdir))
@@ -380,7 +266,8 @@ std::optional<pointer> object_store::store(
     if (ec)
         return std::nullopt;
 
-    if (!std::filesystem::exists(dest, ec)) {
+    if (!std::filesystem::exists(dest, ec))
+    {
         std::filesystem::copy_file(file_path, dest,
             std::filesystem::copy_options::none, ec);
         if (ec)
@@ -409,7 +296,8 @@ std::optional<pointer> object_store::store_temp(
     std::filesystem::create_directories(dest.parent_path(), ec);
 
     // 如果目标已存在，则直接删除临时文件并返回。
-    if (std::filesystem::exists(dest, ec)) {
+    if (std::filesystem::exists(dest, ec))
+    {
         std::filesystem::remove(tmp_path, ec);
         return pointer(oid_hex, sz);
     }
@@ -434,14 +322,15 @@ std::filesystem::path object_store::object_path(
     return objects_root_ / sub1 / sub2 / oid;
 }
 
-bool object_store::exists(const std::string& oid) const {
+bool object_store::exists(const std::string& oid) const
+{
     std::error_code ec;
     return std::filesystem::exists(object_path(oid), ec);
 }
 
-// ============================================================================
+// -----------------------------------------------------------------------
 // 属性匹配（attribute matching）
-// ============================================================================
+// -----------------------------------------------------------------------
 
 namespace {
 
@@ -452,10 +341,12 @@ std::optional<std::string> parse_lfs_attribute_line(
     std::string_view line)
 {
     // 修剪空白。
-    while (!line.empty() && (line.front() == ' ' || line.front() == '\t'))
+    while (!line.empty() &&
+           (line.front() == ' ' || line.front() == '\t'))
         line.remove_prefix(1);
-    while (!line.empty() && (line.back() == ' ' ||
-           line.back() == '\t' || line.back() == '\r'))
+    while (!line.empty() &&
+           (line.back() == ' ' ||
+            line.back() == '\t' || line.back() == '\r'))
         line.remove_suffix(1);
 
     if (line.empty() || line.front() == '#')
@@ -471,7 +362,8 @@ std::optional<std::string> parse_lfs_attribute_line(
 
     // 在属性部分中查找 "filter=lfs"。
     // 属性由空格/制表符分隔。
-    for (;;) {
+    for (;;)
+    {
         // 修剪前导空白。
         while (!attrs.empty() &&
                (attrs.front() == ' ' || attrs.front() == '\t'))
@@ -481,10 +373,13 @@ std::optional<std::string> parse_lfs_attribute_line(
 
         auto attr_end = attrs.find_first_of(" \t");
         std::string_view attr;
-        if (attr_end == std::string_view::npos) {
+        if (attr_end == std::string_view::npos)
+        {
             attr = attrs;
             attrs = {};
-        } else {
+        }
+        else
+        {
             attr = attrs.substr(0, attr_end);
             attrs = attrs.substr(attr_end + 1);
         }
@@ -501,13 +396,17 @@ static std::vector<std::string> load_patterns_from_content(
     std::string_view content)
 {
     std::vector<std::string> patterns;
-    for (;;) {
+    for (;;)
+    {
         auto nl = content.find('\n');
         std::string_view line;
-        if (nl == std::string_view::npos) {
+        if (nl == std::string_view::npos)
+        {
             line = content;
             content = {};
-        } else {
+        }
+        else
+        {
             line = content.substr(0, nl);
             content.remove_prefix(nl + 1);
         }
@@ -527,17 +426,20 @@ static std::vector<std::string> load_patterns_from_content(
 // '**' 匹配包括 '/' 在内的任何内容。
 // '?' 匹配除 '/' 之外的任何单个字符。
 static bool glob_match(std::string_view pattern,
-                       std::string_view path) noexcept
+    std::string_view path) noexcept
 {
     auto pi = pattern.begin();
     auto pe = pattern.end();
     auto si = path.begin();
     auto se = path.end();
 
-    while (pi != pe && si != se) {
-        if (*pi == '*') {
+    while (pi != pe && si != se)
+    {
+        if (*pi == '*')
+        {
             // 检查 '**' 模式。
-            if (pi + 1 != pe && *(pi + 1) == '*') {
+            if (pi + 1 != pe && *(pi + 1) == '*')
+            {
                 // '**' 匹配包括 '/' 在内的任何内容。
                 pi += 2;
                 // 如果模式中有尾随的 '/'，则跳过。
@@ -547,9 +449,11 @@ static bool glob_match(std::string_view pattern,
                 if (pi == pe)
                     return true;
                 // 尝试在每个位置上匹配模式的其余部分。
-                while (si != se) {
-                    if (glob_match(std::string_view(&*pi, pe - pi),
-                                   std::string_view(&*si, se - si)))
+                while (si != se)
+                {
+                    if (glob_match(
+                            std::string_view(&*pi, pe - pi),
+                            std::string_view(&*si, se - si)))
                         return true;
                     ++si;
                 }
@@ -557,32 +461,38 @@ static bool glob_match(std::string_view pattern,
             }
             // 单个 '*' — 跳过直到 '/' 或结束。
             ++pi;
-            while (si != se && *si != '/') {
-                if (glob_match(std::string_view(&*pi, pe - pi),
-                               std::string_view(&*si, se - si)))
+            while (si != se && *si != '/')
+            {
+                if (glob_match(
+                        std::string_view(&*pi, pe - pi),
+                        std::string_view(&*si, se - si)))
                     return true;
                 ++si;
             }
             // 也尝试匹配零个字符。
-            if (glob_match(std::string_view(&*pi, pe - pi),
-                           std::string_view(&*si, se - si)))
+            if (glob_match(
+                    std::string_view(&*pi, pe - pi),
+                    std::string_view(&*si, se - si)))
                 return true;
             continue;
         }
-        if (*pi == '?') {
+        if (*pi == '?')
+        {
             if (*si == '/')
                 return false;
             ++pi; ++si;
             continue;
         }
-        if (*pi != *si) {
+        if (*pi != *si)
+        {
             return false;
         }
         ++pi; ++si;
     }
 
     // 跳过模式中尾随的 '*'。
-    while (pi != pe && *pi == '*') {
+    while (pi != pe && *pi == '*')
+    {
         // 检查 '**'。
         if (pi + 1 != pe && *(pi + 1) == '*')
             pi += 2;
@@ -593,7 +503,7 @@ static bool glob_match(std::string_view pattern,
     return pi == pe && si == se;
 }
 
-} // 匿名命名空间
+} // anonymous namespace
 
 std::vector<std::string> load_lfs_patterns(
     const std::filesystem::path& gitdir,
@@ -602,38 +512,48 @@ std::vector<std::string> load_lfs_patterns(
     std::vector<std::string> patterns;
 
     // 1. 尝试从工作树根目录读取 .gitattributes。
-    if (repo) {
+    if (repo)
+    {
         const char* workdir = git_repository_workdir(repo);
-        if (workdir) {
+        if (workdir)
+        {
             std::filesystem::path attr_path =
                 std::filesystem::path(workdir) / ".gitattributes";
             std::ifstream file(attr_path);
-            if (file) {
-                std::string content((std::istreambuf_iterator<char>(file)),
-                                     std::istreambuf_iterator<char>());
+            if (file)
+            {
+                std::string content(
+                    (std::istreambuf_iterator<char>(file)),
+                    std::istreambuf_iterator<char>());
                 auto pats = load_patterns_from_content(content);
                 patterns.insert(patterns.end(),
-                                std::make_move_iterator(pats.begin()),
-                                std::make_move_iterator(pats.end()));
+                    std::make_move_iterator(pats.begin()),
+                    std::make_move_iterator(pats.end()));
             }
         }
     }
 
     // 2. 也尝试从 HEAD 读取 .gitattributes（如果可用）。
-    if (repo) {
+    if (repo)
+    {
         // 使用 libgit2 从 HEAD 读取 .gitattributes。
         git_oid head_oid;
-        if (git_reference_name_to_id(&head_oid, repo, "HEAD") == 0) {
+        if (git_reference_name_to_id(&head_oid, repo, "HEAD") == 0)
+        {
             git_commit* commit = nullptr;
-            if (git_commit_lookup(&commit, repo, &head_oid) == 0) {
+            if (git_commit_lookup(&commit, repo, &head_oid) == 0)
+            {
                 git_tree* tree = nullptr;
-                if (git_commit_tree(&tree, commit) == 0) {
+                if (git_commit_tree(&tree, commit) == 0)
+                {
                     git_tree_entry* entry = nullptr;
-                    if (git_tree_entry_bypath(&entry, tree,
-                            ".gitattributes") == 0) {
+                    if (git_tree_entry_bypath(
+                            &entry, tree, ".gitattributes") == 0)
+                    {
                         git_blob* blob = nullptr;
                         if (git_blob_lookup(&blob, repo,
-                                git_tree_entry_id(entry)) == 0) {
+                                git_tree_entry_id(entry)) == 0)
+                        {
                             const char* content =
                                 (const char*)git_blob_rawcontent(blob);
                             auto sz = git_blob_rawsize(blob);
@@ -656,7 +576,8 @@ std::vector<std::string> load_lfs_patterns(
     // 去重（工作树版本优先）。
     std::vector<std::string> result;
     std::unordered_set<std::string> seen;
-    for (auto& pat : patterns) {
+    for (auto& pat : patterns)
+    {
         if (seen.insert(pat).second)
             result.push_back(std::move(pat));
     }
@@ -665,9 +586,10 @@ std::vector<std::string> load_lfs_patterns(
 }
 
 bool path_matches_lfs(std::string_view path,
-                      const std::vector<std::string>& patterns)
+    const std::vector<std::string>& patterns)
 {
-    for (const auto& pattern : patterns) {
+    for (const auto& pattern : patterns)
+    {
         if (glob_match(pattern, path))
             return true;
     }
@@ -675,17 +597,16 @@ bool path_matches_lfs(std::string_view path,
 }
 
 bool is_lfs_tracked(std::string_view path,
-                    git_repository* repo,
-                    const std::filesystem::path& gitdir)
+    git_repository* repo,
+    const std::filesystem::path& gitdir)
 {
     auto patterns = load_lfs_patterns(gitdir, repo);
     return path_matches_lfs(path, patterns);
 }
 
-// ============================================================================
-// ============================================================================
+// -----------------------------------------------------------------------
 // pointer::write_to / read_from
-// ============================================================================
+// -----------------------------------------------------------------------
 
 bool pointer::write_to(const std::filesystem::path& dest) const
 {
@@ -718,22 +639,23 @@ std::optional<pointer> pointer::read_from(
     return decode(content);
 }
 
-// ============================================================================
+// -----------------------------------------------------------------------
 // LFS 基于 git_filter_register 的过滤器实现
-// ============================================================================
+// -----------------------------------------------------------------------
 
 namespace {
 
 // 过滤器全局数据（git_filter_register 是全局的）。
-struct filter_global_data {
+struct filter_global_data
+{
     std::string gitdir;
 };
 
 static std::unique_ptr<filter_global_data> g_filter_data;
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 // 自定义 git_writestream —— 处理 LFS clean/smudge 的流式转换
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 
 // 在 .git/lfs/tmp/ 下生成唯一的临时文件名。
 std::filesystem::path make_tmp_path(
@@ -750,12 +672,14 @@ std::filesystem::path make_tmp_path(
 #else
     auto pid = static_cast<long>(::getpid());
 #endif
-    auto name = "lfs-tmp-" + std::to_string(rd()) + "-" + std::to_string(pid);
+    auto name =
+        "lfs-tmp-" + std::to_string(rd()) + "-" + std::to_string(pid);
 
     return tmp_dir / name;
 }
 
-struct lfs_writestream {
+struct lfs_writestream
+{
     git_writestream base;
 
     // 下游（下一个过滤器或最终输出）。
@@ -765,7 +689,7 @@ struct lfs_writestream {
     bool clean_mode = true;
 
     // --- clean 模式的状态 ---
-    sha256_ctx hash_ctx;
+    EVP_MD_CTX* hash_ctx = nullptr;  // SHA-256 哈希上下文（OpenSSL EVP）
     std::filesystem::path tmp_path;   // 临时文件路径
     std::ofstream tmp_file;           // 临时文件流
     std::int64_t file_size = 0;       // 原始文件大小
@@ -778,15 +702,20 @@ struct lfs_writestream {
 // clean 模式：write 回调 — 哈希数据并写入临时文件。
 static int lfs_stream_write_clean(
     lfs_writestream* stream,
-    const char* data, size_t len)
+    const char* data,
+    size_t len)
 {
     // 更新 SHA-256 哈希。
-    sha256_update(&stream->hash_ctx,
-        reinterpret_cast<const unsigned char*>(data), len);
+    if (stream->hash_ctx)
+    {
+        EVP_DigestUpdate(stream->hash_ctx, data, len);
+    }
 
     // 写入临时文件。
-    if (stream->tmp_file.is_open()) {
-        stream->tmp_file.write(data, static_cast<std::streamsize>(len));
+    if (stream->tmp_file.is_open())
+    {
+        stream->tmp_file.write(
+            data, static_cast<std::streamsize>(len));
         if (!stream->tmp_file.good())
             return -1;
     }
@@ -798,7 +727,8 @@ static int lfs_stream_write_clean(
 // smudge 模式：write 回调 — 收集指针文件内容。
 static int lfs_stream_write_smudge(
     lfs_writestream* stream,
-    const char* data, size_t len)
+    const char* data,
+    size_t len)
 {
     stream->pointer_data.append(data, len);
     return 0;
@@ -807,7 +737,8 @@ static int lfs_stream_write_smudge(
 // write 回调分发。
 static int lfs_stream_write(
     git_writestream* base,
-    const char* data, size_t len)
+    const char* data,
+    size_t len)
 {
     auto* stream = reinterpret_cast<lfs_writestream*>(base);
     if (stream->clean_mode)
@@ -821,7 +752,13 @@ static int lfs_stream_close_clean(lfs_writestream* stream)
 {
     // 完成 SHA-256 哈希。
     unsigned char hash[32];
-    sha256_final(&stream->hash_ctx, hash);
+    unsigned int hash_len = 0;
+    if (stream->hash_ctx)
+    {
+        EVP_DigestFinal_ex(stream->hash_ctx, hash, &hash_len);
+        EVP_MD_CTX_free(stream->hash_ctx);
+        stream->hash_ctx = nullptr;
+    }
     auto oid_hex = sha256_hex(hash);
 
     // 关闭临时文件。
@@ -831,7 +768,8 @@ static int lfs_stream_close_clean(lfs_writestream* stream)
     // 将临时文件移动到 LFS 对象存储。
     object_store store(stream->gitdir);
     auto ptr = store.store_temp(stream->tmp_path);
-    if (!ptr) {
+    if (!ptr)
+    {
         // 存储失败，清理临时文件。
         std::error_code ec;
         std::filesystem::remove(stream->tmp_path, ec);
@@ -854,7 +792,8 @@ static int lfs_stream_close_smudge(lfs_writestream* stream)
 {
     // 尝试解析指针文件。
     auto ptr = pointer::decode(stream->pointer_data);
-    if (!ptr) {
+    if (!ptr)
+    {
         // 不是有效的指针文件 — 直接透传原始内容。
         int ret = stream->next->write(stream->next,
             stream->pointer_data.data(),
@@ -869,7 +808,8 @@ static int lfs_stream_close_smudge(lfs_writestream* stream)
     auto obj_path = store.object_path(ptr->oid);
 
     std::ifstream obj_file(obj_path, std::ios::binary);
-    if (!obj_file) {
+    if (!obj_file)
+    {
         // LFS 对象不在本地 — 回退：透传指针文件内容。
         int ret = stream->next->write(stream->next,
             stream->pointer_data.data(),
@@ -881,7 +821,8 @@ static int lfs_stream_close_smudge(lfs_writestream* stream)
 
     // 分块读取并写入下游。
     char buf[65536];
-    while (obj_file.read(buf, sizeof(buf)) || obj_file.gcount() > 0) {
+    while (obj_file.read(buf, sizeof(buf)) || obj_file.gcount() > 0)
+    {
         auto count = static_cast<size_t>(obj_file.gcount());
         int ret = stream->next->write(stream->next, buf, count);
         if (ret != 0)
@@ -905,12 +846,17 @@ static int lfs_stream_close(git_writestream* base)
 static void lfs_stream_free(git_writestream* base)
 {
     auto* stream = reinterpret_cast<lfs_writestream*>(base);
+    if (stream->hash_ctx)
+    {
+        EVP_MD_CTX_free(stream->hash_ctx);
+        stream->hash_ctx = nullptr;
+    }
     delete stream;
 }
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 // 过滤器回调
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------
 
 // check 回调：决定是否为给定文件调用过滤器。
 static int lfs_filter_check(
@@ -921,16 +867,20 @@ static int lfs_filter_check(
 {
     // 对于 clean 模式，如果文件大小为 0，则不使用 LFS
     auto mode = git_filter_source_mode(src);
-    if (mode == GIT_FILTER_CLEAN) {
+    if (mode == GIT_FILTER_CLEAN)
+    {
         auto repo = git_filter_source_repo(src);
-        const char* workdir = repo ? git_repository_workdir(repo) : nullptr;
+        const char* workdir =
+            repo ? git_repository_workdir(repo) : nullptr;
         const char* path = git_filter_source_path(src);
-        if (workdir && path) {
+        if (workdir && path)
+        {
             std::filesystem::path full_path =
                 std::filesystem::path(workdir) / path;
             std::error_code ec;
             auto sz = std::filesystem::file_size(full_path, ec);
-            if (!ec && sz == 0) {
+            if (!ec && sz == 0)
+            {
                 return GIT_PASSTHROUGH;
             }
         }
@@ -950,7 +900,8 @@ static int lfs_filter_stream(
     const git_filter_source* src,
     git_writestream* next)
 {
-    if (!g_filter_data) {
+    if (!g_filter_data)
+    {
         // 没有全局数据，无法运行。
         return GIT_PASSTHROUGH;
     }
@@ -964,21 +915,37 @@ static int lfs_filter_stream(
     stream->next = next;
     stream->gitdir = g_filter_data->gitdir;
 
-    if (mode == GIT_FILTER_CLEAN) {
+    if (mode == GIT_FILTER_CLEAN)
+    {
         stream->clean_mode = true;
 
-        // 初始化哈希上下文。
-        sha256_init(&stream->hash_ctx);
+        // 初始化哈希上下文（OpenSSL EVP）。
+        stream->hash_ctx = EVP_MD_CTX_new();
+        if (!stream->hash_ctx ||
+            EVP_DigestInit_ex(
+                stream->hash_ctx, EVP_sha256(), nullptr) != 1)
+        {
+            if (stream->hash_ctx)
+            {
+                EVP_MD_CTX_free(stream->hash_ctx);
+                stream->hash_ctx = nullptr;
+            }
+            delete stream;
+            return -1;
+        }
         stream->file_size = 0;
 
         // 创建临时文件路径。
         stream->tmp_path = make_tmp_path(g_filter_data->gitdir);
         stream->tmp_file.open(stream->tmp_path, std::ios::binary);
-        if (!stream->tmp_file.is_open()) {
+        if (!stream->tmp_file.is_open())
+        {
             delete stream;
             return -1;
         }
-    } else {
+    }
+    else
+    {
         stream->clean_mode = false;
         stream->pointer_data.clear();
     }
@@ -996,18 +963,19 @@ static void lfs_filter_cleanup(
 }
 
 // 全局 filter 实例。
-static git_filter g_lfs_filter = {
+static git_filter g_lfs_filter =
+{
     GIT_FILTER_VERSION,
-    "filter=lfs",          // attributes：当 filter=lfs 时触发
-    nullptr,                // initialize
-    nullptr,                // shutdown
-    lfs_filter_check,       // check
-    nullptr,                // apply (deprecated)
-    lfs_filter_stream,      // stream
-    lfs_filter_cleanup      // cleanup
+    "filter=lfs",         // attributes：当 filter=lfs 时触发
+    nullptr,              // initialize
+    nullptr,              // shutdown
+    lfs_filter_check,     // check
+    nullptr,              // apply (deprecated)
+    lfs_filter_stream,    // stream
+    lfs_filter_cleanup    // cleanup
 };
 
-} // 匿名命名空间
+} // anonymous namespace
 
 int write_lfs_attributes(
     const std::filesystem::path& gitdir,
@@ -1023,7 +991,8 @@ int write_lfs_attributes(
     {
         std::ifstream existing(info_attr_path);
         std::string line;
-        while (std::getline(existing, line)) {
+        while (std::getline(existing, line))
+        {
             // 去除行尾的 \r。
             if (!line.empty() && line.back() == '\r')
                 line.pop_back();
@@ -1033,13 +1002,16 @@ int write_lfs_attributes(
 
     // 收集现有的 LFS filter 模式（去重）。
     std::unordered_set<std::string> existing_patterns;
-    for (const auto& line : existing_lines) {
+    for (const auto& line : existing_lines)
+    {
         // 查找 " filter=lfs" 或 "filter=lfs"。
         auto pos = line.find("filter=lfs");
-        if (pos != std::string::npos) {
+        if (pos != std::string::npos)
+        {
             // 提取模式部分（第一个空格前的部分）。
             auto pat_end = line.find_first_of(" \t");
-            if (pat_end != std::string::npos) {
+            if (pat_end != std::string::npos)
+            {
                 existing_patterns.insert(line.substr(0, pat_end));
             }
         }
@@ -1050,8 +1022,10 @@ int write_lfs_attributes(
     if (!out)
         return -1;
 
-    for (const auto& pat : patterns) {
-        if (existing_patterns.find(pat) == existing_patterns.end()) {
+    for (const auto& pat : patterns)
+    {
+        if (existing_patterns.find(pat) == existing_patterns.end())
+        {
             out << pat << " filter=lfs\n";
             existing_patterns.insert(pat);
         }
@@ -1062,7 +1036,8 @@ int write_lfs_attributes(
 
 int register_lfs_filter(const std::filesystem::path& gitdir)
 {
-    if (g_filter_data) {
+    if (g_filter_data)
+    {
         return 0;
     }
 
@@ -1071,7 +1046,8 @@ int register_lfs_filter(const std::filesystem::path& gitdir)
 
     int ret = git_filter_register(
         "lfs", &g_lfs_filter, GIT_FILTER_DRIVER_PRIORITY);
-    if (ret < 0) {
+    if (ret < 0)
+    {
         return ret;
     }
 
@@ -1081,15 +1057,16 @@ int register_lfs_filter(const std::filesystem::path& gitdir)
 
 void unregister_lfs_filter()
 {
-    if (g_filter_data) {
+    if (g_filter_data)
+    {
         git_filter_unregister("lfs");
         g_filter_data.reset();
     }
 }
 
-// ============================================================================
+// -----------------------------------------------------------------------
 // 收集新的 LFS 对象（用于推送）
-// ============================================================================
+// -----------------------------------------------------------------------
 
 std::vector<lfs_object> collect_new_lfs_objects(
     const std::filesystem::path& gitdir)
@@ -1104,13 +1081,19 @@ std::vector<lfs_object> collect_new_lfs_objects(
         return objects;
 
     // 遍历 xx/xx/oid 层级结构。
-    for (auto& d1 : std::filesystem::directory_iterator(objects_root, ec)) {
+    for (auto& d1 :
+        std::filesystem::directory_iterator(objects_root, ec))
+    {
         if (!d1.is_directory())
             continue;
-        for (auto& d2 : std::filesystem::directory_iterator(d1.path(), ec)) {
+        for (auto& d2 :
+            std::filesystem::directory_iterator(d1.path(), ec))
+        {
             if (!d2.is_directory())
                 continue;
-            for (auto& file : std::filesystem::directory_iterator(d2.path(), ec)) {
+            for (auto& file :
+                std::filesystem::directory_iterator(d2.path(), ec))
+            {
                 if (!file.is_regular_file())
                     continue;
                 auto oid = file.path().filename().string();
@@ -1119,7 +1102,8 @@ std::vector<lfs_object> collect_new_lfs_objects(
 
                 lfs_object obj;
                 obj.oid = oid;
-                obj.size = static_cast<std::int64_t>(file.file_size(ec));
+                obj.size =
+                    static_cast<std::int64_t>(file.file_size(ec));
                 obj.exists = true;
                 objects.push_back(std::move(obj));
             }
@@ -1129,40 +1113,42 @@ std::vector<lfs_object> collect_new_lfs_objects(
     return objects;
 }
 
-// ============================================================================
+// -----------------------------------------------------------------------
 // LFS HTTP 推送 — 使用 httpc 库
-// ============================================================================
+// -----------------------------------------------------------------------
 
 std::optional<std::string> push_lfs_objects_http(
     const std::string& lfs_push_url,
     const std::filesystem::path& gitdir,
     const std::string& auth_header)
 {
-    if (lfs_push_url.empty()) {
+    if (lfs_push_url.empty())
+    {
         return "lfs_push_url.empty()";
     }
 
     // 收集所有本地 LFS 对象。
     auto objects = collect_new_lfs_objects(gitdir);
-    if (objects.empty()) {
+    if (objects.empty())
+    {
         return "objects.empty()";
     }
 
-    // 构建 LFS 批量 API 请求的 JSON (使用 boost.json).
+    // 构建 LFS 批量 API 请求的 JSON (使用 boost.json)。
     namespace json = boost::json;
 
-    json::value body = {
+    json::value body =
+    {
         {"operation", "upload"},
         {"transfers", {"basic"}},
         {"objects", json::array()},
         {"ref", {{"name", "refs/heads/master"}}}
     };
     auto& objects_arr = body.as_object()["objects"].as_array();
-    for (const auto& obj : objects) {
-        objects_arr.push_back({
-            {"oid", obj.oid},
-            {"size", obj.size}
-        });
+    for (const auto& obj : objects)
+    {
+        objects_arr.push_back(
+            {{"oid", obj.oid}, {"size", obj.size}});
     }
     std::string json_body = json::serialize(body);
 
@@ -1170,7 +1156,8 @@ std::optional<std::string> push_lfs_objects_http(
     std::string base_url = lfs_push_url;
     // 移除末尾的 .git（如有）。
     if (base_url.size() > 4 &&
-        base_url.substr(base_url.size() - 4) == ".git") {
+        base_url.substr(base_url.size() - 4) == ".git")
+    {
         base_url.resize(base_url.size() - 4);
     }
     // 移除末尾的斜杠。
@@ -1184,55 +1171,68 @@ std::optional<std::string> push_lfs_objects_http(
     httpc::http_result batch_result;
 
     // 通过协程异步执行，使用 use_future 同步等待结果。
-    boost::asio::co_spawn(ioc,
-        [&]() mutable -> boost::asio::awaitable<void> {
+    boost::asio::co_spawn(
+        ioc,
+        [&]() mutable -> boost::asio::awaitable<void>
+        {
             httpc::http_client client(ioc.get_executor());
             client.connect_timeout(std::chrono::seconds(30));
             client.check_certificate(false);
             client.follow_redirect(false);
 
-            client.set_transfer_handler([&](auto data, auto size) mutable {
-                response_body.append((const char*)data, size);
-                return 0;
-            });
+            client.set_transfer_handler(
+                [&](auto data, auto size) mutable
+                {
+                    response_body.append(
+                        (const char*)data, size);
+                    return 0;
+                });
 
             httpc::http_request batch_req;
             batch_req.method(httpc::verb::post);
             batch_req.set(httpc::http::field::content_type,
-                        "application/vnd.git-lfs+json");
+                "application/vnd.git-lfs+json");
             batch_req.set(httpc::http::field::accept,
-                        "application/vnd.git-lfs+json");
+                "application/vnd.git-lfs+json");
             if (!auth_header.empty())
-                batch_req.set(httpc::http::field::authorization, auth_header);
+                batch_req.set(httpc::http::field::authorization,
+                    auth_header);
             batch_req.body() = json_body;
             batch_req.prepare_payload();
 
-            batch_result = co_await client.async_perform(batch_url, batch_req);
+            batch_result =
+                co_await client.async_perform(batch_url, batch_req);
             co_return;
         },
         boost::asio::detached);
     ioc.run();
 
-    if (!batch_result) {
+    if (!batch_result)
+    {
         return "!batch_result";
     }
 
     auto& response = *batch_result;
     auto http_status = response.result_int();
-    if (http_status != 200) {
+    if (http_status != 200)
+    {
         return "http_status != 200";
     }
 
-    // 使用 boost.json 解析响应.
+    // 使用 boost.json 解析响应。
     json::value jv;
-    try {
+    try
+    {
         jv = json::parse(response_body);
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e)
+    {
         return std::string("json exception: ") + e.what();
     }
 
     auto& resp_obj = jv.as_object();
-    if (!resp_obj.contains("objects")) {
+    if (!resp_obj.contains("objects"))
+    {
         return "!resp_obj.contains(\"objects\")";
     }
 
@@ -1242,83 +1242,111 @@ std::optional<std::string> push_lfs_objects_http(
     int success_count = 0;
     std::string fail_file;
 
-    for (auto& elem : resp_objects) {
+    for (auto& elem : resp_objects)
+    {
         auto& obj = elem.as_object();
 
         // 提取 OID.
-        if (!obj.contains("oid") || !obj["oid"].is_string()) {
+        if (!obj.contains("oid") || !obj["oid"].is_string())
+        {
             ++error_count;
             continue;
         }
 
-        std::string oid = json::value_to<std::string>(obj["oid"]);
+        std::string oid =
+            json::value_to<std::string>(obj["oid"]);
 
         // 尝试从 actions.upload 或直接 upload 中获取 href.
         std::string upload_url;
-        if (obj.contains("actions") && obj["actions"].is_object()) {
+        if (obj.contains("actions") && obj["actions"].is_object())
+        {
             auto& actions = obj["actions"].as_object();
-            if (actions.contains("upload") && actions["upload"].is_object()) {
+            if (actions.contains("upload") &&
+                actions["upload"].is_object())
+            {
                 auto& upload = actions["upload"].as_object();
-                if (upload.contains("href") && upload["href"].is_string())
-                    upload_url = json::value_to<std::string>(upload["href"]);
+                if (upload.contains("href") &&
+                    upload["href"].is_string())
+                    upload_url =
+                        json::value_to<std::string>(
+                            upload["href"]);
             }
-        } else if (obj.contains("upload") && obj["upload"].is_object()) {
+        }
+        else if (obj.contains("upload") &&
+                 obj["upload"].is_object())
+        {
             auto& upload = obj["upload"].as_object();
-            if (upload.contains("href") && upload["href"].is_string())
-                upload_url = json::value_to<std::string>(upload["href"]);
+            if (upload.contains("href") &&
+                upload["href"].is_string())
+                upload_url =
+                    json::value_to<std::string>(upload["href"]);
         }
 
-        if (upload_url.empty()) {
+        if (upload_url.empty())
+        {
             ++error_count;
             continue;
         }
 
-        // 找到本地对象文件.
+        // 找到本地对象文件。
         object_store store(gitdir);
         auto obj_path = store.object_path(oid);
 
         std::error_code ec;
-        if (!std::filesystem::exists(obj_path, ec)) {
+        if (!std::filesystem::exists(obj_path, ec))
+        {
             ++error_count;
             continue;
         }
 
         ++upload_count;
 
-        // 使用 httpc 的 async_upload_file 流式上传文件.
+        // 使用 httpc 的 async_upload_file 流式上传文件。
         ioc.restart();
 
         httpc::http_result upload_result;
         auto obj_path_str = obj_path.string();
 
-        boost::asio::co_spawn(ioc,
-            [&]() mutable -> boost::asio::awaitable<void> {
+        boost::asio::co_spawn(
+            ioc,
+            [&]() mutable -> boost::asio::awaitable<void>
+            {
                 httpc::http_client client(ioc.get_executor());
-                client.connect_timeout(std::chrono::seconds(30));
+                client.connect_timeout(
+                    std::chrono::seconds(30));
                 client.check_certificate(false);
                 client.follow_redirect(false);
 
                 // 构建上传请求
                 httpc::http_request upload_req;
                 upload_req.method(httpc::verb::put);
-                upload_req.set(httpc::http::field::content_type,
-                            "application/octet-stream");
+                upload_req.set(
+                    httpc::http::field::content_type,
+                    "application/octet-stream");
 
                 // 使用 async_upload_file 直接上传文件
-                upload_result = co_await client.async_upload_file(
-                    upload_url, obj_path_str, upload_req);
-            }, boost::asio::detached);
+                upload_result =
+                    co_await client.async_upload_file(
+                        upload_url, obj_path_str, upload_req);
+            },
+            boost::asio::detached);
         ioc.run();
 
-        if (!upload_result) {
+        if (!upload_result)
+        {
             ++error_count;
             fail_file = obj_path_str;
-        } else {
+        }
+        else
+        {
             auto status = upload_result->result_int();
-            if (status >= 200 && status < 300) {
+            if (status >= 200 && status < 300)
+            {
                 ++success_count;
                 fail_file.clear();
-            } else {
+            }
+            else
+            {
                 ++error_count;
                 fail_file = obj_path_str;
             }
