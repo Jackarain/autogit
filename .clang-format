@@ -1,0 +1,168 @@
+---
+# BasedOnStyle: LLVM  --  heavily customized.
+# Style: gitpp / httpc  (Allman-style braces, 4-space indent, Left references)
+#
+# For a quick reference:  clang-format --style=file --dump-config
+# Test on a file:         clang-format --style=file --dry-run --Werror lfs.cpp
+
+Language: Cpp
+
+# ---------------------------------------------------------------------------
+# Indentation
+# ---------------------------------------------------------------------------
+IndentWidth: 4
+ContinuationIndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+NamespaceIndentation: Inner
+IndentCaseLabels: true
+IndentGotoLabels: true
+IndentRequires: true
+IndentPPDirectives: AfterHash
+PPIndentWidth: 2
+IndentExternBlock: AfterExternBlock
+
+# ---------------------------------------------------------------------------
+# Brace placement
+# ---------------------------------------------------------------------------
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterCaseLabel:        true
+  AfterClass:            true
+  AfterControlStatement: Always    # if/while/for/switch → brace on new line
+  AfterEnum:             true
+  AfterExternBlock:      true
+  AfterFunction:         true      # function/class method → brace on new line
+  AfterNamespace:        false     # namespace brace on SAME line
+  AfterObjCDeclaration:  true
+  AfterStruct:           true
+  AfterUnion:            true
+  BeforeCatch:           true
+  BeforeElse:            true
+  BeforeLambdaBody:      true
+  BeforeWhile:           false
+  IndentBraces:          false
+  SplitEmptyFunction:    true
+  SplitEmptyRecord:      true
+  SplitEmptyNamespace:   true
+
+# ---------------------------------------------------------------------------
+# Line breaks
+# ---------------------------------------------------------------------------
+ColumnLimit: 100
+MaxEmptyLinesToKeep: 2
+KeepEmptyLinesAtTheStartOfBlocks: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLambdasOnASingleLine: None
+AllowShortLoopsOnASingleLine: false
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: true
+AlwaysBreakAfterDefinitionReturnType: None
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: false
+AlwaysBreakTemplateDeclarations: Yes
+BinPackArguments: false
+BinPackParameters: false
+BreakAfterAttributes: Leave
+BreakBeforeBinaryOperators: NonAssignment
+BreakBeforeConceptDeclarations: Always
+BreakBeforeInlineASMColon: false
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+BreakInheritanceList: BeforeColon
+BreakStringLiterals: true
+CompactNamespaces: false
+ConstructorInitializerAllOnLineOrOnePerLine: true
+ConstructorInitializerIndentWidth: 4
+Cpp11BracedListStyle: true
+FixNamespaceComments: true
+IndentWrappedFunctionNames: false
+InsertBraces: false
+InsertTrailingCommas: None
+LambdaBodyIndentation: Signature
+PackConstructorInitializers: Never
+PenaltyBreakAssignment: 10
+PenaltyBreakBeforeFirstCallParameter: 30
+PenaltyBreakComment: 300
+PenaltyBreakFirstLessLess: 120
+PenaltyBreakString: 1000
+PenaltyExcessCharacter: 1000000
+PenaltyReturnTypeOnItsOwnLine: 60
+RemoveBracesLLVM: false
+SeparateDefinitionBlocks: Always
+ShortNamespaceLines: 10
+
+# ---------------------------------------------------------------------------
+# Alignment
+# ---------------------------------------------------------------------------
+AlignAfterOpenBracket: DontAlign
+AlignConsecutiveAssignments: false
+AlignConsecutiveBitFields: false
+AlignConsecutiveDeclarations: false
+AlignConsecutiveMacros: false
+AlignConsecutiveShortCaseStatements: false
+AlignEscapedNewlines: Left
+AlignOperands: Align
+AlignTrailingComments: true
+
+# ---------------------------------------------------------------------------
+# Spaces
+# ---------------------------------------------------------------------------
+SpaceAfterCStyleCast: false
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: false
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCaseColon: false
+SpaceBeforeCpp11BracedList: true
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeParens: ControlStatements
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceBeforeSquareBrackets: false
+SpaceInEmptyBlock: false
+SpacesBeforeTrailingComments: 1
+SpacesInAngles: false
+SpacesInConditionalStatement: false
+SpacesInContainerLiterals: false
+SpacesInCStyleCastParentheses: false
+SpacesInLineCommentPrefix:
+  Minimum: 1
+  Maximum: -1
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# ---------------------------------------------------------------------------
+# Pointers & References
+# ---------------------------------------------------------------------------
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+DerivePointerAlignment: false
+QualifierAlignment: Leave
+
+# ---------------------------------------------------------------------------
+# Includes
+# ---------------------------------------------------------------------------
+IncludeBlocks: Preserve
+SortIncludes: false
+IncludeIsMainRegex: (^|/)main[^/]*$
+
+# ---------------------------------------------------------------------------
+# Comments
+# ---------------------------------------------------------------------------
+ReflowComments: false
+
+# ---------------------------------------------------------------------------
+# Macros & Attributes
+# ---------------------------------------------------------------------------
+StatementAttributeLikeMacros:
+  - GITPP_NODISCARD
+  - BOOST_FORCEINLINE
+  - BOOST_ASIO_UNUSED
+
+# ---------------------------------------------------------------------------
+# Language standard
+# ---------------------------------------------------------------------------
+Standard: c++20
