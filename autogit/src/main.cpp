@@ -61,8 +61,8 @@ namespace fs = boost::filesystem;
 #include <fcntl.h>
 
 #ifdef _WIN32
-# include <io.h>
-# include <windows.h>
+#  include <io.h>
+#  include <windows.h>
 #endif
 
 //////////////////////////////////////////////////////////////////////////
@@ -99,9 +99,10 @@ std::string global_git_remote_url;
  * @brief Git LFS 相关配置
  * @{
  */
-bool global_enable_lfs = false;                  ///< 是否启用 Git LFS 支持
-std::vector<std::string> global_lfs_patterns;    ///< 额外 LFS 文件匹配模式（glob）
-std::string global_lfs_push_url;                 ///< LFS 对象推送 URL，为空则从 remote.origin.url 推导
+bool global_enable_lfs = false;               ///< 是否启用 Git LFS 支持
+std::vector<std::string> global_lfs_patterns; ///< 额外 LFS 文件匹配模式（glob）
+std::string global_lfs_push_url;              ///< LFS 对象推送 URL，为空则从 remote.origin.url 推导
+
 /** @} */
 
 
@@ -117,10 +118,7 @@ std::string global_lfs_push_url;                 ///< LFS 对象推送 URL，为
  * @param payload  用户自定义数据（未使用）。
  * @return int     返回 1 表示接受证书，返回 0 表示拒绝。
  */
-int certificate_check_cb(git_cert *cert,
-	int valid,
-	const char *host,
-	void *payload)
+int certificate_check_cb(git_cert* cert, int valid, const char* host, void* payload)
 {
     return 1; // 始终接受证书
 }
@@ -136,9 +134,9 @@ int certificate_check_cb(git_cert *cert,
 const char* get_home_dir(void)
 {
 #ifdef _WIN32
-	return getenv("USERPROFILE");
+    return getenv("USERPROFILE");
 #else
-	return getenv("HOME");
+    return getenv("HOME");
 #endif
 }
 
@@ -153,55 +151,53 @@ const char* get_home_dir(void)
  * @param username_from_url  从远程 URL 中提取的用户名。
  * @return int               0 表示成功，负值表示错误码。
  */
-static int build_ssh_credential(git_cred** cred,
-    const char* username_from_url)
+static int build_ssh_credential(git_cred** cred, const char* username_from_url)
 {
     // 构建默认 SSH 密钥目录：~/.ssh/
-    auto default_sshdir =
-        std::string(get_home_dir()) +
+    auto default_sshdir = std::string(get_home_dir()) +
 #ifdef WIN32
-        "\\.ssh\\";
+                          "\\.ssh\\";
 #else
-        "/.ssh/";
+                          "/.ssh/";
 #endif // WIN32（Windows 平台）
 
     const char* private_key = nullptr;
     const char* public_key = nullptr;
 
     // 优先使用全局指定的私钥路径，否则在默认目录下查找。
-    if (fs::exists(global_ssh_privkey)) {
+    if (fs::exists(global_ssh_privkey))
+    {
         private_key = global_ssh_privkey.c_str();
-    } else {
-        default_sshdir += (global_ssh_privkey.empty() ?
-            "idrsa" : global_ssh_privkey);
+    }
+    else
+    {
+        default_sshdir += (global_ssh_privkey.empty() ? "idrsa" : global_ssh_privkey);
         private_key = default_sshdir.c_str();
     }
 
     // 公钥路径处理：优先使用全局指定路径，否则尝试附加到默认目录。
-    if (fs::exists(global_ssh_pubkey)) {
+    if (fs::exists(global_ssh_pubkey))
+    {
         public_key = global_ssh_pubkey.c_str();
-    } else {
-        auto pubkey_dir = (global_ssh_pubkey.empty() ?
-                "" : global_ssh_pubkey);
+    }
+    else
+    {
+        auto pubkey_dir = (global_ssh_pubkey.empty() ? "" : global_ssh_pubkey);
 
-        default_sshdir = pubkey_dir.empty() ?
-            "" : default_sshdir + pubkey_dir;
+        default_sshdir = pubkey_dir.empty() ? "" : default_sshdir + pubkey_dir;
 
-        public_key = default_sshdir.empty() ?
-            nullptr : default_sshdir.c_str();
+        public_key = default_sshdir.empty() ? nullptr : default_sshdir.c_str();
     }
 
     // 私钥加密口令，无口令时传 NULL。
-    const char* passphrase =
-        global_ssh_passphrase.empty() ?
-            nullptr : global_ssh_passphrase.c_str();
+    const char* passphrase = global_ssh_passphrase.empty() ? nullptr
+                                                           : global_ssh_passphrase.c_str();
 
-    return git_cred_ssh_key_new(
-        cred,
+    return git_cred_ssh_key_new(cred,
         username_from_url,
-        public_key,             // 这是公钥的路径.
-        private_key,            // 这是私钥的路径.
-        passphrase              // 如果你的私钥有密码.
+        public_key,  // 这是公钥的路径.
+        private_key, // 这是私钥的路径.
+        passphrase   // 如果你的私钥有密码.
     );
 }
 
@@ -265,9 +261,7 @@ int cred_acquire_cb(git_cred** cred,
  * @return int          EXIT_SUCCESS（0）表示成功，EXIT_FAILURE（1）表示失败。
  */
 static int process_status_entries(
-    gitpp::index& index,
-    gitpp::status_list& status,
-    size_t& commit_count)
+    gitpp::index& index, gitpp::status_list& status, size_t& commit_count)
 {
     commit_count = 0;
 
@@ -281,60 +275,51 @@ static int process_status_entries(
         // 高 28 位为状态标志位，用于区分不同变更类型。
         switch (entry->status & 0xfffffff0)
         {
-        // 新增的未被追踪的文件 → 添加到暂存区。
-        case GIT_STATUS_WT_NEW:
-            ret = git_index_add_bypath(handle, old_file_path);
-            commit_count++;
-            XLOG_DBG << "Untracked file: "
-                << entry->index_to_workdir->old_file.path;
-            break;
+            // 新增的未被追踪的文件 → 添加到暂存区。
+            case GIT_STATUS_WT_NEW:
+                ret = git_index_add_bypath(handle, old_file_path);
+                commit_count++;
+                XLOG_DBG << "Untracked file: " << entry->index_to_workdir->old_file.path;
+                break;
 
-        // 已修改的文件 → 暂存变更。
-        case GIT_STATUS_WT_MODIFIED:
-            ret = git_index_add_bypath(handle, old_file_path);
-            commit_count++;
-            XLOG_DBG << "modify file: "
-                << entry->index_to_workdir->old_file.path;
-            break;
+            // 已修改的文件 → 暂存变更。
+            case GIT_STATUS_WT_MODIFIED:
+                ret = git_index_add_bypath(handle, old_file_path);
+                commit_count++;
+                XLOG_DBG << "modify file: " << entry->index_to_workdir->old_file.path;
+                break;
 
-        // 已删除的文件 → 从索引中移除。
-        case GIT_STATUS_WT_DELETED:
-            ret = git_index_remove_bypath(handle, old_file_path);
-            commit_count++;
-            XLOG_DBG << "delete file: "
-                << entry->index_to_workdir->old_file.path;
-            break;
+            // 已删除的文件 → 从索引中移除。
+            case GIT_STATUS_WT_DELETED:
+                ret = git_index_remove_bypath(handle, old_file_path);
+                commit_count++;
+                XLOG_DBG << "delete file: " << entry->index_to_workdir->old_file.path;
+                break;
 
-        // 文件类型变更（如普通文件→符号链接）→ 重新暂存。
-        case GIT_STATUS_WT_TYPECHANGE:
-            ret = git_index_add_bypath(handle, old_file_path);
-            commit_count++;
-            XLOG_DBG << "typechg file: "
-                << entry->index_to_workdir->old_file.path;
-            break;
+            // 文件类型变更（如普通文件→符号链接）→ 重新暂存。
+            case GIT_STATUS_WT_TYPECHANGE:
+                ret = git_index_add_bypath(handle, old_file_path);
+                commit_count++;
+                XLOG_DBG << "typechg file: " << entry->index_to_workdir->old_file.path;
+                break;
 
-        // 重命名的文件 → 暂存新路径。
-        case GIT_STATUS_WT_RENAMED:
-            XLOG_DBG << "rename file: "
-                << entry->index_to_workdir->old_file.path
-                << " to "
-                << entry->index_to_workdir->new_file.path;
-            ret = git_index_add_bypath(handle, old_file_path);
-            commit_count++;
-            break;
+            // 重命名的文件 → 暂存新路径。
+            case GIT_STATUS_WT_RENAMED:
+                XLOG_DBG << "rename file: " << entry->index_to_workdir->old_file.path << " to "
+                         << entry->index_to_workdir->new_file.path;
+                ret = git_index_add_bypath(handle, old_file_path);
+                commit_count++;
+                break;
 
-        default:
-            break;
+            default:
+                break;
         }
 
         // 检查 libgit2 操作是否成功，失败时记录错误并退出。
         if (ret != 0)
         {
-            XLOG_DBG << "git_index_add_bypath, path: "
-                << old_file_path
-                << ", status: " << entry->status
-                << ", err: "
-                << git_error_last()->message;
+            XLOG_DBG << "git_index_add_bypath, path: " << old_file_path
+                     << ", status: " << entry->status << ", err: " << git_error_last()->message;
             return EXIT_FAILURE;
         }
     }
@@ -353,10 +338,7 @@ static int process_status_entries(
  * @param commit_count  本次提交包含的文件变更数。
  * @return int           EXIT_SUCCESS（0）表示成功，EXIT_FAILURE（1）表示失败。
  */
-static int write_tree_and_commit(
-    gitpp::repo& repo,
-    gitpp::index& index,
-    size_t commit_count)
+static int write_tree_and_commit(gitpp::repo& repo, gitpp::index& index, size_t commit_count)
 {
     // 无变更时跳过提交。
     if (commit_count == 0)
@@ -365,8 +347,7 @@ static int write_tree_and_commit(
     // 将索引写入磁盘（.git/index）。
     if (git_index_write(index.native()) != 0)
     {
-        XLOG_DBG << "git_index_write, err: "
-            << git_error_last()->message;
+        XLOG_DBG << "git_index_write, err: " << git_error_last()->message;
         return EXIT_FAILURE;
     }
 
@@ -377,14 +358,12 @@ static int write_tree_and_commit(
     //   [自定义前缀] 2024-01-15 10:30:00 author_name N files changed
     auto now = boost::posix_time::second_clock::local_time();
     std::string dt_str = boost::posix_time::to_iso_extended_string(now);
-    dt_str[10] = ' ';  // 将 'T' 替换为空格, 得到 "2012-12-08 17:29:32" 格式
+    dt_str[10] = ' '; // 将 'T' 替换为空格, 得到 "2012-12-08 17:29:32" 格式
 
     std::ostringstream msg_oss;
     if (!global_commit_message.empty())
         msg_oss << global_commit_message << " ";
-    msg_oss << dt_str << " "
-        << global_git_author << " "
-        << commit_count << " files changed";
+    msg_oss << dt_str << " " << global_git_author << " " << commit_count << " files changed";
     std::string commit_message = msg_oss.str();
 
     // 当一个新仓库刚创建时 HEAD 并没有指向一个有效的 Commit, 这时
@@ -413,12 +392,7 @@ static int write_tree_and_commit(
         gitpp::oid parent_id = head.target();
         gitpp::commit parent = repo.lookup_commit(parent_id);
         gitpp::signature signature(global_git_author, global_git_email);
-        (void)repo.create_commit("HEAD",
-            signature,
-            signature,
-            commit_message,
-            tree,
-            parent);
+        (void)repo.create_commit("HEAD", signature, signature, commit_message, tree, parent);
     }
 
     return EXIT_SUCCESS;
@@ -501,8 +475,7 @@ static void push_lfs_objects(gitpp::repo& repo)
     XLOG_DBG << "Pushing LFS objects to: " << lfs_url;
 
     // 尝试通过 HTTP Batch API 推送 LFS 对象。
-    auto lfs_ret = gitpp::lfs::push_lfs_objects_http(
-        lfs_url, repo.path());
+    auto lfs_ret = gitpp::lfs::push_lfs_objects_http(lfs_url, repo.path());
 
     if (!lfs_ret)
     {
@@ -530,8 +503,7 @@ static int push_to_remote(gitpp::repo& repo)
     git_push_options options;
     if (git_push_init_options(&options, GIT_PUSH_OPTIONS_VERSION) != 0)
     {
-        XLOG_DBG << "git_push_init_options, err: "
-            << git_error_last()->message;
+        XLOG_DBG << "git_push_init_options, err: " << git_error_last()->message;
         return EXIT_FAILURE;
     }
 
@@ -543,12 +515,9 @@ static int push_to_remote(gitpp::repo& repo)
     // 执行推送操作
     // 默认 refspec: refs/heads/master
     // 强制推送 refspec: +refs/heads/master:refs/heads/master（前导 '+' 表示 force）
-    char* refspec[1] = { (char*)"refs/heads/master" };
-    char* force_refspec[1] = { (char*)"+refs/heads/master:refs/heads/master" };
-    git_strarray arr = {
-        .strings = refspec,
-        .count = 1
-    };
+    char* refspec[1] = {(char*)"refs/heads/master"};
+    char* force_refspec[1] = {(char*)"+refs/heads/master:refs/heads/master"};
+    git_strarray arr = {.strings = refspec, .count = 1};
 
     // 启用强制推送时，使用带 '+' 前缀的 refspec。
     if (global_force_push)
@@ -556,8 +525,7 @@ static int push_to_remote(gitpp::repo& repo)
 
     if (git_remote_push(remote.native(), &arr, &options) != 0)
     {
-        XLOG_DBG << "git_remote_push, err: "
-            << git_error_last()->message;
+        XLOG_DBG << "git_remote_push, err: " << git_error_last()->message;
         return EXIT_FAILURE;
     }
 
@@ -632,8 +600,7 @@ static int ensure_git_repository(const std::string& git_dir)
         fs::create_directories(git_dir, ec);
         if (ec)
         {
-            XLOG_ERR << "create git dir: " << git_dir
-                << ", err: " << ec.message();
+            XLOG_ERR << "create git dir: " << git_dir << ", err: " << ec.message();
             return EXIT_FAILURE;
         }
     }
@@ -645,8 +612,7 @@ static int ensure_git_repository(const std::string& git_dir)
     }
     catch (const std::exception& e)
     {
-        XLOG_ERR << "init git repo: '" << git_dir
-            << "' failure: " << e.what();
+        XLOG_ERR << "init git repo: '" << git_dir << "' failure: " << e.what();
         return EXIT_FAILURE;
     }
 
@@ -670,20 +636,17 @@ static void setup_lfs_for_repository(gitpp::repo& repo)
     std::string git_dir_path = repo.path();
 
     // 从 .gitattributes 加载已有的 LFS 模式。
-    auto lfs_patterns = gitpp::lfs::load_lfs_patterns(
-        git_dir_path, repo.native());
+    auto lfs_patterns = gitpp::lfs::load_lfs_patterns(git_dir_path, repo.native());
 
     // 合并通过 --lfs_pattern 命令行参数指定的额外模式，避免重复。
     for (const auto& pat : global_lfs_patterns)
     {
-        if (std::find(lfs_patterns.begin(),
-            lfs_patterns.end(), pat) == lfs_patterns.end())
+        if (std::find(lfs_patterns.begin(), lfs_patterns.end(), pat) == lfs_patterns.end())
             lfs_patterns.push_back(pat);
     }
 
     // 将合并后的 LFS 模式写入 .git/info/attributes，使 filter=lfs 生效。
-    int attr_ret = gitpp::lfs::write_lfs_attributes(
-        git_dir_path, lfs_patterns);
+    int attr_ret = gitpp::lfs::write_lfs_attributes(git_dir_path, lfs_patterns);
     if (attr_ret != 0)
         XLOG_WARN << "Failed to write LFS attributes to .git/info/attributes";
 
@@ -737,8 +700,8 @@ static void log_head_commit_info(gitpp::repo& repo)
  * @param cancel_slot     Asio 取消槽，用于外部触发取消操作。
  * @return net::awaitable<int> 协程返回值，EXIT_SUCCESS 或 EXIT_FAILURE。
  */
-net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir,
-    net::cancellation_slot cancel_slot)
+net::awaitable<int> git_work_loop(
+    int check_interval, const std::string& git_dir, net::cancellation_slot cancel_slot)
 {
     auto executor = co_await net::this_coro::executor;
 
@@ -751,11 +714,10 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
         // 步骤2：打开仓库并进行初始化配置。
         gitpp::repo repo(git_dir);
 
-        XLOG_DBG << "Open repo: " << git_dir
-            << ", is_bare: " << repo.is_bare()
-            << ", is_empty: " << repo.is_empty()
-            << ", is_head_detached: " << repo.is_head_detached()
-            << ", is_head_unborn: " << repo.is_head_unborn();
+        XLOG_DBG << "Open repo: " << git_dir << ", is_bare: " << repo.is_bare()
+                 << ", is_empty: " << repo.is_empty()
+                 << ", is_head_detached: " << repo.is_head_detached()
+                 << ", is_head_unborn: " << repo.is_head_unborn();
 
         setup_lfs_for_repository(repo);
         log_head_commit_info(repo);
@@ -779,9 +741,8 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
             net::steady_timer timer(executor);
 
             timer.expires_after(std::chrono::seconds(interval));
-            co_await timer.async_wait(
-                net::bind_cancellation_slot(cancel_slot,
-                    net::redirect_error(net::use_awaitable, ec)));
+            co_await timer.async_wait(net::bind_cancellation_slot(cancel_slot,
+                net::redirect_error(net::use_awaitable, ec)));
 
             if (ec == boost::asio::error::operation_aborted)
             {
@@ -813,8 +774,7 @@ net::awaitable<int> git_work_loop(int check_interval, const std::string& git_dir
  * @param quiet            输出参数，是否静默模式。
  * @return po::options_description  配置好的选项描述对象。
  */
-static po::options_description build_options_description(
-    std::string& git_dir,
+static po::options_description build_options_description(std::string& git_dir,
     std::string& log_dir,
     std::string& config,
     int& check_interval,
@@ -825,46 +785,66 @@ static po::options_description build_options_description(
     // ═══════════════════════════════════════════
     // 通用选项
     // ═══════════════════════════════════════════
-    desc.add_options()
-        ("help,h", "Display help information.")
-        ("config,c", po::value<std::string>(&config)->default_value("autogit.conf"), "Path to the configuration file.")
-        ("quiet", po::value<bool>(&quiet)->implicit_value(true)->default_value(false), "Mute all logging.")
-        ("log_dir", po::value<std::string>(&log_dir)->value_name("path"), "Specify directory for log files.")
-        ("check_interval", po::value<int>(&check_interval)->default_value(60), "Time interval (in seconds) between Git repository checks.");
+    desc.add_options()("help,h", "Display help information.")("config,c",
+        po::value<std::string>(&config)->default_value("autogit.conf"),
+        "Path to the configuration file.")("quiet",
+        po::value<bool>(&quiet)->implicit_value(true)->default_value(false),
+        "Mute all logging.")("log_dir",
+        po::value<std::string>(&log_dir)->value_name("path"),
+        "Specify directory for log files.")("check_interval",
+        po::value<int>(&check_interval)->default_value(60),
+        "Time interval (in seconds) between Git repository checks.");
 
     // ═══════════════════════════════════════════
     // Git 特定选项
     // ═══════════════════════════════════════════
-    desc.add_options()
-        ("repository", po::value<std::string>(&git_dir)->value_name("repository"), "Specify the Git repository location.")
-        ("commit_msg", po::value<std::string>(&global_commit_message)->default_value(""), "Set a custom commit message, if empty will auto-generate.")
-        ("force_push", po::value<bool>(&global_force_push)->default_value(false), "Enable force push for Git commits.")
-        ("git_author", po::value<std::string>(&global_git_author)->default_value("autogit"), "Name to be used for Git commit authorship.")
-        ("git_email", po::value<std::string>(&global_git_email)->default_value("autogit@localhost"), "Email to be associated with Git commit authorship.")
-        ("git_remote_url", po::value<std::string>(&global_git_remote_url)->default_value(""), "URL for the remote Git repository.");
+    desc.add_options()("repository",
+        po::value<std::string>(&git_dir)->value_name("repository"),
+        "Specify the Git repository location.")("commit_msg",
+        po::value<std::string>(&global_commit_message)->default_value(""),
+        "Set a custom commit message, if empty will auto-generate.")("force_push",
+        po::value<bool>(&global_force_push)->default_value(false),
+        "Enable force push for Git commits.")("git_author",
+        po::value<std::string>(&global_git_author)->default_value("autogit"),
+        "Name to be used for Git commit authorship.")("git_email",
+        po::value<std::string>(&global_git_email)->default_value("autogit@localhost"),
+        "Email to be associated with Git commit authorship.")("git_remote_url",
+        po::value<std::string>(&global_git_remote_url)->default_value(""),
+        "URL for the remote Git repository.");
 
     // ═══════════════════════════════════════════
     // HTTP 认证选项
     // ═══════════════════════════════════════════
-    desc.add_options()
-        ("http_username", po::value<std::string>(&global_http_username)->default_value(""), "Username for HTTP authentication.")
-        ("http_password", po::value<std::string>(&global_http_password)->default_value(""), "Password for HTTP authentication.");
+    desc.add_options()("http_username",
+        po::value<std::string>(&global_http_username)->default_value(""),
+        "Username for HTTP authentication.")("http_password",
+        po::value<std::string>(&global_http_password)->default_value(""),
+        "Password for HTTP authentication.");
 
     // ═══════════════════════════════════════════
     // SSH 认证选项
     // ═══════════════════════════════════════════
-    desc.add_options()
-        ("ssh_pubkey", po::value<std::string>(&global_ssh_pubkey)->default_value(""), "Path to the SSH public key for authentication.")
-        ("ssh_privkey", po::value<std::string>(&global_ssh_privkey)->default_value(""), "Path to the SSH private key for authentication.")
-        ("ssh_passphrase", po::value<std::string>(&global_ssh_passphrase)->default_value(""), "Passphrase for the SSH key.");
+    desc.add_options()("ssh_pubkey",
+        po::value<std::string>(&global_ssh_pubkey)->default_value(""),
+        "Path to the SSH public key for authentication.")("ssh_privkey",
+        po::value<std::string>(&global_ssh_privkey)->default_value(""),
+        "Path to the SSH private key for authentication.")("ssh_passphrase",
+        po::value<std::string>(&global_ssh_passphrase)->default_value(""),
+        "Passphrase for the SSH key.");
 
     // ═══════════════════════════════════════════
     // Git LFS 选项
     // ═══════════════════════════════════════════
-    desc.add_options()
-        ("lfs", po::value<bool>(&global_enable_lfs)->default_value(false), "Enable Git LFS support. When enabled, files matching LFS patterns in .gitattributes will be stored as LFS pointers.")
-        ("lfs_pattern", po::value<std::vector<std::string>>(&global_lfs_patterns)->multitoken(), "Additional LFS file patterns (glob) to track, e.g. --lfs_pattern '*.psd' --lfs_pattern '*.zip'. These supplement patterns from .gitattributes.")
-        ("lfs_push_url", po::value<std::string>(&global_lfs_push_url)->default_value(""), "LFS remote URL for pushing objects. Overrides the url setting in .lfsconfig. If empty, the repository remote origin URL is used.");
+    desc.add_options()("lfs",
+        po::value<bool>(&global_enable_lfs)->default_value(false),
+        "Enable Git LFS support. When enabled, files matching LFS patterns in .gitattributes will "
+        "be stored as LFS pointers.")("lfs_pattern",
+        po::value<std::vector<std::string>>(&global_lfs_patterns)->multitoken(),
+        "Additional LFS file patterns (glob) to track, e.g. --lfs_pattern '*.psd' --lfs_pattern "
+        "'*.zip'. These supplement patterns from .gitattributes.")("lfs_push_url",
+        po::value<std::string>(&global_lfs_push_url)->default_value(""),
+        "LFS remote URL for pushing objects. Overrides the url setting in .lfsconfig. If empty, "
+        "the repository remote origin URL is used.");
 
     return desc;
 }
@@ -884,20 +864,19 @@ static po::options_description build_options_description(
  * @return true  解析成功。
  * @return false 解析失败（如配置文件无法打开）。
  */
-static bool parse_command_line(
-    int argc, char** argv,
+static bool parse_command_line(int argc,
+    char** argv,
     po::options_description& desc,
     po::variables_map& vm,
     const std::string& config)
 {
     // 解析命令行参数。
-    po::store(
-        po::command_line_parser(argc, argv)
-        .options(desc)
-        .style(po::command_line_style::unix_style
-            | po::command_line_style::allow_long_disguise)
-        .run()
-        , vm);
+    po::store(po::command_line_parser(argc, argv)
+                  .options(desc)
+                  .style(po::command_line_style::unix_style
+                         | po::command_line_style::allow_long_disguise)
+                  .run(),
+        vm);
     po::notify(vm);
 
     // 如果配置文件存在，解析并合并配置项。
@@ -926,10 +905,10 @@ static bool parse_command_line(
  */
 static void setup_termination_signals(net::signal_set& signal_set)
 {
-    signal_set.add(SIGINT);     // Ctrl+C 中断信号。
-    signal_set.add(SIGTERM);    // 终止信号（kill 默认发送）。
+    signal_set.add(SIGINT);  // Ctrl+C 中断信号。
+    signal_set.add(SIGTERM); // 终止信号（kill 默认发送）。
 #if defined(SIGQUIT)
-    signal_set.add(SIGQUIT);    // 退出信号（Ctrl+\）。
+    signal_set.add(SIGQUIT); // 退出信号（Ctrl+\）。
 #endif
 }
 
@@ -956,8 +935,8 @@ net::awaitable<int> co_main(int argc, char** argv)
     bool quiet = false;
 
     // 步骤1：构建并解析命令行选项。
-    po::options_description desc = build_options_description(
-        git_dir, log_dir, config, check_interval, quiet);
+    po::options_description desc =
+        build_options_description(git_dir, log_dir, config, check_interval, quiet);
     po::variables_map vm;
 
     if (!parse_command_line(argc, argv, desc, vm, config))
@@ -994,10 +973,12 @@ net::awaitable<int> co_main(int argc, char** argv)
 
     // 当接收到终止信号时，触发 Asio 取消操作，
     // 让 git_work_loop 中的异步操作被中断并正常退出。
-    terminator_signal.async_wait([&cancel_signal](boost::system::error_code ec, int) {
-        if (!ec)
-            cancel_signal.emit(net::cancellation_type::terminal);
-    });
+    terminator_signal.async_wait(
+        [&cancel_signal](boost::system::error_code ec, int)
+        {
+            if (!ec)
+                cancel_signal.emit(net::cancellation_type::terminal);
+        });
 
     // 步骤4：进入 Git 自动工作主循环。
     co_await git_work_loop(check_interval, git_dir, cancel_signal.slot());
@@ -1023,20 +1004,20 @@ net::awaitable<int> co_main(int argc, char** argv)
  */
 int main(int argc, char** argv)
 {
-	int main_return;
+    int main_return;
 
-	// 创建 io_context 并派发 co_main 协程。
-	net::io_context ioc;
-	net::co_spawn(ioc,
-		co_main(argc, argv),
-		[&](std::exception_ptr e, int ret)
-		{
-			if (e)
-				std::rethrow_exception(e);
-			main_return = ret;
-			ioc.stop();
-		});
-	ioc.run();
+    // 创建 io_context 并派发 co_main 协程。
+    net::io_context ioc;
+    net::co_spawn(ioc,
+        co_main(argc, argv),
+        [&](std::exception_ptr e, int ret)
+        {
+            if (e)
+                std::rethrow_exception(e);
+            main_return = ret;
+            ioc.stop();
+        });
+    ioc.run();
 
-	return main_return;
+    return main_return;
 }

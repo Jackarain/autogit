@@ -42,7 +42,7 @@
 #include <vector>
 
 #ifndef GITPP_NODISCARD
-#define GITPP_NODISCARD [[nodiscard]]
+#  define GITPP_NODISCARD [[nodiscard]]
 #endif
 
 namespace gitpp {
@@ -70,34 +70,41 @@ class diff;
 // RAII 辅助：libgit2 资源的通用删除器
 // ---------------------------------------------------------------------------
 
-template <auto FreeFn>
-struct git_deleter {
-    template <typename T>
-    void operator()(T* p) const noexcept {
-        if (p) FreeFn(p);
+template<auto FreeFn>
+struct git_deleter
+{
+    template<typename T>
+    void operator()(T* p) const noexcept
+    {
+        if (p)
+            FreeFn(p);
     }
 };
 
-using unique_repository      = std::unique_ptr<git_repository,     git_deleter<git_repository_free>>;
-using unique_reference       = std::unique_ptr<git_reference,      git_deleter<git_reference_free>>;
-using unique_status_list     = std::unique_ptr<git_status_list,    git_deleter<git_status_list_free>>;
-using unique_index           = std::unique_ptr<git_index,          git_deleter<git_index_free>>;
-using unique_signature       = std::unique_ptr<git_signature,      git_deleter<git_signature_free>>;
-using unique_remote          = std::unique_ptr<git_remote,         git_deleter<git_remote_free>>;
-using unique_revwalk         = std::unique_ptr<git_revwalk,        git_deleter<git_revwalk_free>>;
-using unique_branch_iterator = std::unique_ptr<git_branch_iterator, git_deleter<git_branch_iterator_free>>;
-using unique_diff            = std::unique_ptr<git_diff,           git_deleter<git_diff_free>>;
-using unique_tag             = std::unique_ptr<git_tag,            git_deleter<git_tag_free>>;
+using unique_repository = std::unique_ptr<git_repository, git_deleter<git_repository_free>>;
+using unique_reference = std::unique_ptr<git_reference, git_deleter<git_reference_free>>;
+using unique_status_list = std::unique_ptr<git_status_list, git_deleter<git_status_list_free>>;
+using unique_index = std::unique_ptr<git_index, git_deleter<git_index_free>>;
+using unique_signature = std::unique_ptr<git_signature, git_deleter<git_signature_free>>;
+using unique_remote = std::unique_ptr<git_remote, git_deleter<git_remote_free>>;
+using unique_revwalk = std::unique_ptr<git_revwalk, git_deleter<git_revwalk_free>>;
+using unique_branch_iterator =
+    std::unique_ptr<git_branch_iterator, git_deleter<git_branch_iterator_free>>;
+using unique_diff = std::unique_ptr<git_diff, git_deleter<git_diff_free>>;
+using unique_tag = std::unique_ptr<git_tag, git_deleter<git_tag_free>>;
 
 // git_object 层次结构（commit、tree、blob、tag）的删除器
-template <typename T>
-struct object_deleter {
-    void operator()(T* p) const noexcept {
-        if (p) git_object_free(reinterpret_cast<git_object*>(p));
+template<typename T>
+struct object_deleter
+{
+    void operator()(T* p) const noexcept
+    {
+        if (p)
+            git_object_free(reinterpret_cast<git_object*>(p));
     }
 };
 
-template <typename T>
+template<typename T>
 using unique_git_object = std::unique_ptr<T, object_deleter<T>>;
 
 // ---------------------------------------------------------------------------
@@ -106,118 +113,198 @@ using unique_git_object = std::unique_ptr<T, object_deleter<T>>;
 
 namespace exception {
 
-struct git2_exception : public std::exception {
-    const char* what() const noexcept override { return "libgit2 exception"; }
-};
+    struct git2_exception : public std::exception
+    {
+        const char* what() const noexcept override
+        {
+            return "libgit2 exception";
+        }
+    };
 
-struct not_repo : public git2_exception {
-    const char* what() const noexcept override { return "not a git repository"; }
-};
+    struct not_repo : public git2_exception
+    {
+        const char* what() const noexcept override
+        {
+            return "not a git repository";
+        }
+    };
 
-struct resolve_failed : public git2_exception {
-    const char* what() const noexcept override { return "reference resolution failed"; }
-};
+    struct resolve_failed : public git2_exception
+    {
+        const char* what() const noexcept override
+        {
+            return "reference resolution failed";
+        }
+    };
 
 #if GITPP_HAS_SOURCE_LOCATION
 
-class error : public std::exception {
-public:
-    explicit error(std::source_location loc = std::source_location::current()) noexcept;
-    explicit error(int code, std::source_location loc = std::source_location::current()) noexcept;
-    const char* what() const noexcept override { return msg_.c_str(); }
-    int code() const noexcept { return code_; }
-    const std::source_location& where() const noexcept { return loc_; }
-private:
-    int code_ = -1;
-    std::string msg_;
-    std::source_location loc_;
-};
+    class error : public std::exception
+    {
+    public:
+        explicit error(std::source_location loc = std::source_location::current()) noexcept;
+        explicit error(int code,
+            std::source_location loc = std::source_location::current()) noexcept;
 
-[[noreturn]] void throw_error(int code, std::source_location loc = std::source_location::current());
+        const char* what() const noexcept override
+        {
+            return msg_.c_str();
+        }
 
-inline void throw_on_error(int code, std::source_location loc = std::source_location::current()) {
-    if (code < 0)
-        throw_error(code, std::move(loc));
-}
+        int code() const noexcept
+        {
+            return code_;
+        }
+
+        const std::source_location& where() const noexcept
+        {
+            return loc_;
+        }
+
+    private:
+        int code_ = -1;
+        std::string msg_;
+        std::source_location loc_;
+    };
+
+    [[noreturn]] void throw_error(int code,
+        std::source_location loc = std::source_location::current());
+
+    inline void throw_on_error(int code, std::source_location loc = std::source_location::current())
+    {
+        if (code < 0)
+            throw_error(code, std::move(loc));
+    }
 
 #else // 无 source_location 时的回退
 
-class error : public std::exception {
-public:
-    error() noexcept : error(-1) {}
-    explicit error(int code) noexcept;
-    const char* what() const noexcept override { return msg_.c_str(); }
-    int code() const noexcept { return code_; }
-private:
-    int code_ = -1;
-    std::string msg_;
-};
+    class error : public std::exception
+    {
+    public:
+        error() noexcept
+            : error(-1)
+        {
+        }
 
-[[noreturn]] void throw_error(int code);
+        explicit error(int code) noexcept;
 
-inline void throw_on_error(int code) {
-    if (code < 0)
-        throw_error(code);
-}
+        const char* what() const noexcept override
+        {
+            return msg_.c_str();
+        }
+
+        int code() const noexcept
+        {
+            return code_;
+        }
+
+    private:
+        int code_ = -1;
+        std::string msg_;
+    };
+
+    [[noreturn]] void throw_error(int code);
+
+    inline void throw_on_error(int code)
+    {
+        if (code < 0)
+            throw_error(code);
+    }
 
 #endif // GITPP_HAS_SOURCE_LOCATION
 
-} // namespace exception（异常命名空间）
+} // namespace exception
 
 // ---------------------------------------------------------------------------
 // oid -- Git 对象 ID（SHA-1），完全 constexpr
 // ---------------------------------------------------------------------------
 
-class oid {
+class oid
+{
 public:
     static constexpr std::size_t hash_size = 20;
-    static constexpr std::size_t hex_size  = 40;
+    static constexpr std::size_t hex_size = 40;
 
     constexpr oid() noexcept = default;
 
-    constexpr explicit oid(const git_oid* src) noexcept {
+    constexpr explicit oid(const git_oid* src) noexcept
+    {
         if (src)
             std::copy(std::begin(src->id), std::end(src->id), std::begin(oid_.id));
     }
 
-    GITPP_NODISCARD constexpr const git_oid* native() const noexcept { return &oid_; }
-    GITPP_NODISCARD constexpr       git_oid* native()       noexcept { return &oid_; }
-    GITPP_NODISCARD constexpr const unsigned char* data() const noexcept { return oid_.id; }
-    GITPP_NODISCARD constexpr       unsigned char* data()       noexcept { return oid_.id; }
-    GITPP_NODISCARD constexpr std::span<const unsigned char, hash_size> bytes() const noexcept {
+    GITPP_NODISCARD constexpr const git_oid* native() const noexcept
+    {
+        return &oid_;
+    }
+
+    GITPP_NODISCARD constexpr git_oid* native() noexcept
+    {
+        return &oid_;
+    }
+
+    GITPP_NODISCARD constexpr const unsigned char* data() const noexcept
+    {
+        return oid_.id;
+    }
+
+    GITPP_NODISCARD constexpr unsigned char* data() noexcept
+    {
+        return oid_.id;
+    }
+
+    GITPP_NODISCARD constexpr std::span<const unsigned char, hash_size> bytes() const noexcept
+    {
         return {oid_.id};
     }
 
     // C++20 三路比较运算符
     // 手动 constexpr 循环（std::memcmp 并非在所有平台上都是 constexpr）
-    GITPP_NODISCARD constexpr std::strong_ordering operator<=>(const oid& other) const noexcept {
-        for (std::size_t i = 0; i < hash_size; ++i) {
+    GITPP_NODISCARD constexpr std::strong_ordering operator<=>(const oid& other) const noexcept
+    {
+        for (std::size_t i = 0; i < hash_size; ++i)
+        {
             if (oid_.id[i] != other.oid_.id[i])
                 return oid_.id[i] <=> other.oid_.id[i];
         }
         return std::strong_ordering::equal;
     }
-    GITPP_NODISCARD constexpr bool operator==(const oid& other) const noexcept {
-        for (std::size_t i = 0; i < hash_size; ++i) {
+
+    GITPP_NODISCARD constexpr bool operator==(const oid& other) const noexcept
+    {
+        for (std::size_t i = 0; i < hash_size; ++i)
+        {
             if (oid_.id[i] != other.oid_.id[i])
                 return false;
         }
         return true;
     }
-    GITPP_NODISCARD constexpr bool operator!=(const oid& other) const noexcept {
+
+    GITPP_NODISCARD constexpr bool operator!=(const oid& other) const noexcept
+    {
         return !(*this == other);
     }
-    GITPP_NODISCARD constexpr bool is_zero() const noexcept {
-        return std::all_of(std::begin(oid_.id), std::end(oid_.id),
-                           [](auto b) noexcept { return b == 0; });
+
+    GITPP_NODISCARD constexpr bool is_zero() const noexcept
+    {
+        return std::all_of(std::begin(oid_.id),
+            std::end(oid_.id),
+            [](auto b) noexcept
+            {
+                return b == 0;
+            });
     }
-    GITPP_NODISCARD constexpr explicit operator bool() const noexcept { return !is_zero(); }
+
+    GITPP_NODISCARD constexpr explicit operator bool() const noexcept
+    {
+        return !is_zero();
+    }
 
     GITPP_NODISCARD std::string to_string() const;
     GITPP_NODISCARD static oid from_string(std::string_view hex);
 
 private:
-    git_oid oid_{};
+    git_oid oid_ {};
 };
 
 static_assert(std::is_trivially_copyable_v<oid>);
@@ -226,19 +313,32 @@ static_assert(std::is_trivially_copyable_v<oid>);
 // reference（引用）
 // ---------------------------------------------------------------------------
 
-class reference {
+class reference
+{
 public:
     reference() noexcept = default;
     explicit reference(git_reference* ref) noexcept;
 
     GITPP_NODISCARD git_reference_t type() const noexcept;
-    GITPP_NODISCARD oid            target() const;
-    GITPP_NODISCARD reference      resolve() const;
-    GITPP_NODISCARD std::string    name() const;
-    GITPP_NODISCARD std::string    shorthand() const;
-    GITPP_NODISCARD explicit operator bool() const noexcept { return ref_ != nullptr; }
-    GITPP_NODISCARD git_reference*       native()       noexcept { return ref_.get(); }
-    GITPP_NODISCARD const git_reference* native() const noexcept { return ref_.get(); }
+    GITPP_NODISCARD oid target() const;
+    GITPP_NODISCARD reference resolve() const;
+    GITPP_NODISCARD std::string name() const;
+    GITPP_NODISCARD std::string shorthand() const;
+
+    GITPP_NODISCARD explicit operator bool() const noexcept
+    {
+        return ref_ != nullptr;
+    }
+
+    GITPP_NODISCARD git_reference* native() noexcept
+    {
+        return ref_.get();
+    }
+
+    GITPP_NODISCARD const git_reference* native() const noexcept
+    {
+        return ref_.get();
+    }
 
 private:
     unique_reference ref_;
@@ -248,7 +348,8 @@ private:
 // 对象层次结构（object -> blob, commit, tree）
 // ---------------------------------------------------------------------------
 
-class object {
+class object
+{
 public:
     object() noexcept = default;
     virtual ~object() = default;
@@ -257,49 +358,64 @@ public:
     object(object&&) noexcept = default;
     object& operator=(object&&) noexcept = default;
 
-    GITPP_NODISCARD oid            id() const noexcept;
-    GITPP_NODISCARD git_object_t   type() const noexcept;
-    GITPP_NODISCARD git_object*       native()       noexcept { return obj_.get(); }
-    GITPP_NODISCARD const git_object* native() const noexcept { return obj_.get(); }
+    GITPP_NODISCARD oid id() const noexcept;
+    GITPP_NODISCARD git_object_t type() const noexcept;
+
+    GITPP_NODISCARD git_object* native() noexcept
+    {
+        return obj_.get();
+    }
+
+    GITPP_NODISCARD const git_object* native() const noexcept
+    {
+        return obj_.get();
+    }
 
 protected:
-    explicit object(git_object* obj) noexcept : obj_(obj) {}
+    explicit object(git_object* obj) noexcept
+        : obj_(obj)
+    {
+    }
+
     unique_git_object<git_object> obj_;
 };
 
 // --- blob（数据对象）------------------------------------------------------------------
 
-class blob : public object {
+class blob : public object
+{
 public:
     blob() noexcept = default;
     explicit blob(git_blob* b) noexcept;
 
     GITPP_NODISCARD std::span<const std::byte> content() const noexcept;
-    GITPP_NODISCARD std::string_view           text() const noexcept;
-    GITPP_NODISCARD std::size_t                size() const noexcept;
+    GITPP_NODISCARD std::string_view text() const noexcept;
+    GITPP_NODISCARD std::size_t size() const noexcept;
     GITPP_NODISCARD const git_blob* native_blob() const noexcept;
-    GITPP_NODISCARD       git_blob* native_blob()       noexcept;
+    GITPP_NODISCARD git_blob* native_blob() noexcept;
 };
 
 // --- commit（提交）----------------------------------------------------------------
 
-class commit : public object {
+class commit : public object
+{
 public:
     commit() noexcept = default;
     explicit commit(git_commit* c) noexcept;
 
-    GITPP_NODISCARD std::string_view message()        const noexcept;
-    GITPP_NODISCARD oid             tree_id()         const;
-    GITPP_NODISCARD git_time_t      time()            const noexcept;
-    GITPP_NODISCARD std::string     author_name()     const;
-    GITPP_NODISCARD std::string     committer_name()  const;
+    GITPP_NODISCARD std::string_view message() const noexcept;
+    GITPP_NODISCARD oid tree_id() const;
+    GITPP_NODISCARD git_time_t time() const noexcept;
+    GITPP_NODISCARD std::string author_name() const;
+    GITPP_NODISCARD std::string committer_name() const;
     GITPP_NODISCARD const git_commit* native_commit() const noexcept;
-    GITPP_NODISCARD       git_commit* native_commit()       noexcept;
+    GITPP_NODISCARD git_commit* native_commit() noexcept;
 };
 
 // --- tree_entry（树条目）------------------------------------------------------------
 
-class tree_entry {
+class tree_entry
+{
 public:
     tree_entry() noexcept = default;
     explicit tree_entry(const git_tree_entry* entry) noexcept;
@@ -313,11 +429,15 @@ public:
 
     void reset() noexcept;
 
-    GITPP_NODISCARD oid             id()        const;
-    GITPP_NODISCARD git_object_t    type()      const noexcept;
-    GITPP_NODISCARD std::string_view name()     const noexcept;
-    GITPP_NODISCARD git_filemode_t  filemode()  const noexcept;
-    GITPP_NODISCARD explicit operator bool() const noexcept { return entry_ != nullptr; }
+    GITPP_NODISCARD oid id() const;
+    GITPP_NODISCARD git_object_t type() const noexcept;
+    GITPP_NODISCARD std::string_view name() const noexcept;
+    GITPP_NODISCARD git_filemode_t filemode() const noexcept;
+
+    GITPP_NODISCARD explicit operator bool() const noexcept
+    {
+        return entry_ != nullptr;
+    }
 
 private:
     git_tree_entry* entry_ = nullptr;
@@ -326,35 +446,53 @@ private:
 
 // --- tree（树）------------------------------------------------------------------
 
-class tree : public object {
+class tree : public object
+{
 public:
     tree() noexcept = default;
     explicit tree(git_tree* t) noexcept;
 
-    GITPP_NODISCARD tree_entry   by_path(std::string_view path) const;
-    GITPP_NODISCARD tree_entry   by_index(std::size_t idx) const noexcept;
-    GITPP_NODISCARD std::size_t  count() const noexcept;
+    GITPP_NODISCARD tree_entry by_path(std::string_view path) const;
+    GITPP_NODISCARD tree_entry by_index(std::size_t idx) const noexcept;
+    GITPP_NODISCARD std::size_t count() const noexcept;
     GITPP_NODISCARD const git_tree* native_tree() const noexcept;
-    GITPP_NODISCARD       git_tree* native_tree()       noexcept;
+    GITPP_NODISCARD git_tree* native_tree() noexcept;
 
-    class iterator {
+    class iterator
+    {
     public:
-        using value_type        = tree_entry;
-        using difference_type   = std::ptrdiff_t;
-        using reference         = const tree_entry&;
-        using pointer           = const tree_entry*;
+        using value_type = tree_entry;
+        using difference_type = std::ptrdiff_t;
+        using reference = const tree_entry&;
+        using pointer = const tree_entry*;
         using iterator_category = std::input_iterator_tag;
 
-        GITPP_NODISCARD tree_entry operator*()  const noexcept;
-        GITPP_NODISCARD pointer    operator->() const noexcept { return &entry_; }
+        GITPP_NODISCARD tree_entry operator*() const noexcept;
+
+        GITPP_NODISCARD pointer operator->() const noexcept
+        {
+            return &entry_;
+        }
+
         iterator& operator++() noexcept;
-        iterator  operator++(int) noexcept { auto t = *this; ++(*this); return t; }
-        GITPP_NODISCARD friend bool operator==(const iterator& a, const iterator& b) noexcept {
+
+        iterator operator++(int) noexcept
+        {
+            auto t = *this;
+            ++(*this);
+            return t;
+        }
+
+        GITPP_NODISCARD friend bool operator==(const iterator& a, const iterator& b) noexcept
+        {
             return a.parent_ == b.parent_ && a.index_ == b.index_;
         }
-        GITPP_NODISCARD friend bool operator!=(const iterator& a, const iterator& b) noexcept {
+
+        GITPP_NODISCARD friend bool operator!=(const iterator& a, const iterator& b) noexcept
+        {
             return !(a == b);
         }
+
     private:
         friend class tree;
         iterator(const tree* parent, std::size_t index) noexcept;
@@ -364,14 +502,15 @@ public:
     };
 
     GITPP_NODISCARD iterator begin() const noexcept;
-    GITPP_NODISCARD iterator end()   const noexcept;
+    GITPP_NODISCARD iterator end() const noexcept;
 };
 
 // ---------------------------------------------------------------------------
 // status_list（状态列表）
 // ---------------------------------------------------------------------------
 
-class status_list {
+class status_list
+{
 public:
     status_list() noexcept = default;
     explicit status_list(git_status_list* sl) noexcept;
@@ -381,35 +520,55 @@ public:
     status_list& operator=(status_list&&) noexcept = default;
 
     GITPP_NODISCARD std::size_t size() const noexcept;
-    GITPP_NODISCARD git_status_list*       native()       noexcept { return sl_.get(); }
-    GITPP_NODISCARD const git_status_list* native() const noexcept { return sl_.get(); }
 
-    class iterator {
+    GITPP_NODISCARD git_status_list* native() noexcept
+    {
+        return sl_.get();
+    }
+
+    GITPP_NODISCARD const git_status_list* native() const noexcept
+    {
+        return sl_.get();
+    }
+
+    class iterator
+    {
     public:
-        using value_type        = const git_status_entry*;
-        using reference         = const git_status_entry*;
-        using difference_type   = std::ptrdiff_t;
+        using value_type = const git_status_entry*;
+        using reference = const git_status_entry*;
+        using difference_type = std::ptrdiff_t;
         using iterator_category = std::input_iterator_tag;
 
-        GITPP_NODISCARD reference operator*()  const noexcept;
+        GITPP_NODISCARD reference operator*() const noexcept;
         iterator& operator++() noexcept;
-        iterator  operator++(int) noexcept { auto t = *this; ++(*this); return t; }
-        GITPP_NODISCARD friend bool operator==(const iterator& a, const iterator& b) noexcept {
+
+        iterator operator++(int) noexcept
+        {
+            auto t = *this;
+            ++(*this);
+            return t;
+        }
+
+        GITPP_NODISCARD friend bool operator==(const iterator& a, const iterator& b) noexcept
+        {
             return a.parent_ == b.parent_ && a.idx_ == b.idx_;
         }
-        GITPP_NODISCARD friend bool operator!=(const iterator& a, const iterator& b) noexcept {
+
+        GITPP_NODISCARD friend bool operator!=(const iterator& a, const iterator& b) noexcept
+        {
             return !(a == b);
         }
+
     private:
         friend class status_list;
         iterator(status_list& parent, std::size_t idx) noexcept;
         status_list* parent_ = nullptr;
-        std::size_t  idx_ = 0;
+        std::size_t idx_ = 0;
         mutable const git_status_entry* entry_ = nullptr;
     };
 
     GITPP_NODISCARD iterator begin() noexcept;
-    GITPP_NODISCARD iterator end()   noexcept;
+    GITPP_NODISCARD iterator end() noexcept;
 
 private:
     unique_status_list sl_;
@@ -419,7 +578,8 @@ private:
 // index（索引）
 // ---------------------------------------------------------------------------
 
-class index {
+class index
+{
 public:
     index() noexcept = default;
     explicit index(repo* owner, git_index* gi) noexcept;
@@ -432,11 +592,19 @@ public:
     void add_by_path(const std::string& path);
     void remove_by_path(const std::string& path);
     void write() const;
-    GITPP_NODISCARD git_index*       native()       noexcept { return idx_.get(); }
-    GITPP_NODISCARD const git_index* native() const noexcept { return idx_.get(); }
+
+    GITPP_NODISCARD git_index* native() noexcept
+    {
+        return idx_.get();
+    }
+
+    GITPP_NODISCARD const git_index* native() const noexcept
+    {
+        return idx_.get();
+    }
 
 private:
-    repo*        owner_ = nullptr;
+    repo* owner_ = nullptr;
     unique_index idx_;
 };
 
@@ -444,7 +612,8 @@ private:
 // signature（签名）
 // ---------------------------------------------------------------------------
 
-class signature {
+class signature
+{
 public:
     signature() noexcept = default;
     signature(const std::string& name, const std::string& email);
@@ -453,8 +622,15 @@ public:
     signature& operator=(const signature& other);
     signature& operator=(signature&& other) noexcept = default;
 
-    GITPP_NODISCARD git_signature*       native()       noexcept { return sig_.get(); }
-    GITPP_NODISCARD const git_signature* native() const noexcept { return sig_.get(); }
+    GITPP_NODISCARD git_signature* native() noexcept
+    {
+        return sig_.get();
+    }
+
+    GITPP_NODISCARD const git_signature* native() const noexcept
+    {
+        return sig_.get();
+    }
 
 private:
     unique_signature sig_;
@@ -464,7 +640,8 @@ private:
 // remote（远程）
 // ---------------------------------------------------------------------------
 
-class remote {
+class remote
+{
 public:
     remote() noexcept = default;
     explicit remote(git_remote* r) noexcept;
@@ -474,9 +651,20 @@ public:
     remote& operator=(remote&& other) noexcept = default;
 
     void push(const git_strarray* refspecs, const git_push_options* opts);
-    void fetch(const git_strarray* refspecs, const git_fetch_options* opts, const std::string& reflog_message = {});
-    GITPP_NODISCARD git_remote*       native()       noexcept { return rm_.get(); }
-    GITPP_NODISCARD const git_remote* native() const noexcept { return rm_.get(); }
+    void fetch(const git_strarray* refspecs,
+        const git_fetch_options* opts,
+        const std::string& reflog_message = {});
+
+    GITPP_NODISCARD git_remote* native() noexcept
+    {
+        return rm_.get();
+    }
+
+    GITPP_NODISCARD const git_remote* native() const noexcept
+    {
+        return rm_.get();
+    }
+
     GITPP_NODISCARD std::string name() const noexcept;
     GITPP_NODISCARD std::string url() const noexcept;
 
@@ -488,7 +676,8 @@ private:
 // revwalk（修订遍历器）
 // ---------------------------------------------------------------------------
 
-class revwalk {
+class revwalk
+{
 public:
     revwalk() noexcept = default;
     explicit revwalk(git_repository* repo);
@@ -503,7 +692,11 @@ public:
     void hide_oid(const oid& o);
     void sorting(unsigned int sort_mode) const noexcept;
     GITPP_NODISCARD oid next();
-    GITPP_NODISCARD git_revwalk* native() noexcept { return walk_.get(); }
+
+    GITPP_NODISCARD git_revwalk* native() noexcept
+    {
+        return walk_.get();
+    }
 
 private:
     unique_revwalk walk_;
@@ -513,15 +706,20 @@ private:
 // branch（分支）
 // ---------------------------------------------------------------------------
 
-class branch {
+class branch
+{
 public:
     branch() noexcept = default;
-    GITPP_NODISCARD std::string_view name()          const noexcept;
-    GITPP_NODISCARD std::string_view shorthand()     const noexcept;
-    GITPP_NODISCARD reference       get_reference()  const;
-    GITPP_NODISCARD bool            is_head()        const noexcept;
-    GITPP_NODISCARD bool            is_checked_out() const noexcept;
-    GITPP_NODISCARD explicit operator bool() const noexcept { return ref_ != nullptr; }
+    GITPP_NODISCARD std::string_view name() const noexcept;
+    GITPP_NODISCARD std::string_view shorthand() const noexcept;
+    GITPP_NODISCARD reference get_reference() const;
+    GITPP_NODISCARD bool is_head() const noexcept;
+    GITPP_NODISCARD bool is_checked_out() const noexcept;
+
+    GITPP_NODISCARD explicit operator bool() const noexcept
+    {
+        return ref_ != nullptr;
+    }
 
 private:
     friend class repo;
@@ -534,7 +732,8 @@ private:
 // branch_iterator（分支迭代器）
 // ---------------------------------------------------------------------------
 
-class branch_iterator {
+class branch_iterator
+{
 public:
     branch_iterator() noexcept = default;
     branch_iterator(git_repository* repo, git_branch_t type);
@@ -553,7 +752,8 @@ private:
 // tag（标签）
 // ---------------------------------------------------------------------------
 
-class tag {
+class tag
+{
 public:
     tag() noexcept = default;
     explicit tag(git_tag* t) noexcept;
@@ -562,13 +762,25 @@ public:
     tag(tag&&) noexcept = default;
     tag& operator=(tag&&) noexcept = default;
 
-    GITPP_NODISCARD std::string_view name()        const noexcept;
-    GITPP_NODISCARD std::string_view message()     const noexcept;
-    GITPP_NODISCARD oid             target_id()    const;
-    GITPP_NODISCARD git_object_t    target_type()  const noexcept;
-    GITPP_NODISCARD explicit operator bool() const noexcept { return tag_ != nullptr; }
-    GITPP_NODISCARD git_tag*       native()       noexcept { return tag_.get(); }
-    GITPP_NODISCARD const git_tag* native() const noexcept { return tag_.get(); }
+    GITPP_NODISCARD std::string_view name() const noexcept;
+    GITPP_NODISCARD std::string_view message() const noexcept;
+    GITPP_NODISCARD oid target_id() const;
+    GITPP_NODISCARD git_object_t target_type() const noexcept;
+
+    GITPP_NODISCARD explicit operator bool() const noexcept
+    {
+        return tag_ != nullptr;
+    }
+
+    GITPP_NODISCARD git_tag* native() noexcept
+    {
+        return tag_.get();
+    }
+
+    GITPP_NODISCARD const git_tag* native() const noexcept
+    {
+        return tag_.get();
+    }
 
 private:
     unique_tag tag_;
@@ -578,7 +790,8 @@ private:
 // diff（差异）
 // ---------------------------------------------------------------------------
 
-class diff {
+class diff
+{
 public:
     diff() noexcept = default;
     explicit diff(git_diff* d) noexcept;
@@ -590,9 +803,21 @@ public:
     GITPP_NODISCARD std::size_t num_deltas() const noexcept;
     GITPP_NODISCARD const git_diff_delta* get_delta(std::size_t idx) const noexcept;
     GITPP_NODISCARD std::string to_string() const;
-    GITPP_NODISCARD explicit operator bool() const noexcept { return diff_ != nullptr; }
-    GITPP_NODISCARD git_diff*       native()       noexcept { return diff_.get(); }
-    GITPP_NODISCARD const git_diff* native() const noexcept { return diff_.get(); }
+
+    GITPP_NODISCARD explicit operator bool() const noexcept
+    {
+        return diff_ != nullptr;
+    }
+
+    GITPP_NODISCARD git_diff* native() noexcept
+    {
+        return diff_.get();
+    }
+
+    GITPP_NODISCARD const git_diff* native() const noexcept
+    {
+        return diff_.get();
+    }
 
 private:
     unique_diff diff_;
@@ -602,7 +827,8 @@ private:
 // repo -- 主仓库句柄
 // ---------------------------------------------------------------------------
 
-class repo {
+class repo
+{
 public:
     repo() noexcept = default;
     explicit repo(const std::filesystem::path& repo_dir);
@@ -611,13 +837,20 @@ public:
     repo(repo&&) noexcept = default;
     repo& operator=(repo&&) noexcept = default;
 
-    GITPP_NODISCARD git_repository*       native()       noexcept { return repo_.get(); }
-    GITPP_NODISCARD const git_repository* native() const noexcept { return repo_.get(); }
+    GITPP_NODISCARD git_repository* native() noexcept
+    {
+        return repo_.get();
+    }
+
+    GITPP_NODISCARD const git_repository* native() const noexcept
+    {
+        return repo_.get();
+    }
 
     // 索引与状态
-    GITPP_NODISCARD index       get_index();
+    GITPP_NODISCARD index get_index();
     GITPP_NODISCARD status_list new_status_list();
-    void        index_add_bypath(const std::string& path);
+    void index_add_bypath(const std::string& path);
 
     // 引用
     GITPP_NODISCARD reference head() const;
@@ -629,29 +862,29 @@ public:
     // 提交
     GITPP_NODISCARD commit lookup_commit(const oid& commit_id);
     GITPP_NODISCARD commit create_commit(const std::string& update_ref,
-                                          const signature& author,
-                                          const signature& committer,
-                                          const std::string& message,
-                                          const tree& tree_obj,
-                                          const commit& parent);
+        const signature& author,
+        const signature& committer,
+        const std::string& message,
+        const tree& tree_obj,
+        const commit& parent);
     GITPP_NODISCARD commit create_commit(const std::string& update_ref,
-                                          const signature& author,
-                                          const signature& committer,
-                                          const std::string& message,
-                                          const tree& tree_obj,
-                                          std::vector<commit> parents);
+        const signature& author,
+        const signature& committer,
+        const std::string& message,
+        const tree& tree_obj,
+        std::vector<commit> parents);
 
     // 树与数据对象
-    GITPP_NODISCARD tree  get_tree_by_commit(const oid& commit_id);
-    GITPP_NODISCARD tree  get_tree_by_treeid(const oid& tree_oid);
-    GITPP_NODISCARD blob  get_blob(const oid& blob_id) const;
+    GITPP_NODISCARD tree get_tree_by_commit(const oid& commit_id);
+    GITPP_NODISCARD tree get_tree_by_treeid(const oid& tree_oid);
+    GITPP_NODISCARD blob get_blob(const oid& blob_id) const;
 
     // 修订遍历器
     GITPP_NODISCARD revwalk new_revwalk();
 
     // 分支
-    GITPP_NODISCARD branch          lookup_branch(const std::string& name,
-                                                   git_branch_t type = GIT_BRANCH_LOCAL);
+    GITPP_NODISCARD branch lookup_branch(const std::string& name,
+        git_branch_t type = GIT_BRANCH_LOCAL);
     GITPP_NODISCARD branch_iterator new_branch_iterator(git_branch_t type = GIT_BRANCH_LOCAL);
 
     // 标签
@@ -663,16 +896,21 @@ public:
     GITPP_NODISCARD diff diff_index_to_workdir();
 
     // 属性
-    GITPP_NODISCARD bool        is_bare()          const noexcept;
-    GITPP_NODISCARD bool        is_empty()         const;
-    GITPP_NODISCARD bool        is_head_detached() const;
-    GITPP_NODISCARD bool        is_head_unborn()   const;
-    GITPP_NODISCARD std::string path()             const;
-    GITPP_NODISCARD std::string workdir()          const;
+    GITPP_NODISCARD bool is_bare() const noexcept;
+    GITPP_NODISCARD bool is_empty() const;
+    GITPP_NODISCARD bool is_head_detached() const;
+    GITPP_NODISCARD bool is_head_unborn() const;
+    GITPP_NODISCARD std::string path() const;
+    GITPP_NODISCARD std::string workdir() const;
 
 private:
     friend repo init_repo(const std::filesystem::path&, const std::string&, bool);
-    explicit repo(git_repository* r) noexcept : repo_(r) {}
+
+    explicit repo(git_repository* r) noexcept
+        : repo_(r)
+    {
+    }
+
     unique_repository repo_;
     void check() const;
 };
@@ -682,8 +920,7 @@ private:
 // ---------------------------------------------------------------------------
 
 GITPP_NODISCARD bool is_git_repo(const std::filesystem::path& dir);
-GITPP_NODISCARD repo init_repo(const std::filesystem::path& repo_path,
-                                const std::string& url = {},
-                                bool bare = false);
+GITPP_NODISCARD repo init_repo(
+    const std::filesystem::path& repo_path, const std::string& url = {}, bool bare = false);
 
-} // namespace gitpp（gitpp 命名空间）
+} // namespace gitpp
