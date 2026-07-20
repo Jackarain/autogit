@@ -68,7 +68,7 @@ public:
 
 public:
     // 构造函数.
-    explicit http_client(net::any_io_executor ex);
+    explicit http_client(net::any_io_executor ex, const net::const_buffer& ca_certs = {});
     ~http_client();
 
 public:
@@ -90,8 +90,8 @@ public:
     //  if (result)
     //      auto& resp = *result;    // http_response
     //
-    net::awaitable<http_result> async_perform(const std::string& url,
-        const http_request& req) noexcept;
+    net::awaitable<http_result>
+    async_perform(const std::string& url, const http_request& req) noexcept;
 
     // 异步上传文件到服务器.
     // 使用 http::file_body 流式上传, 支持重定向.
@@ -109,7 +109,8 @@ public:
     //  if (result)
     //      auto& resp = *result;    // http_response
     //
-    net::awaitable<http_result> async_upload_file(const std::string& url,
+    net::awaitable<http_result> async_upload_file(
+        const std::string& url,
         const std::string& file_path,
         const http_request& req = http_request {}) noexcept;
 
@@ -125,8 +126,8 @@ public:
     //  co_await client.async_upload_stream(
     //      "https://example.com/upload", req);
     //
-    net::awaitable<http_result> async_upload_stream(const std::string& url,
-        const http_request& req) noexcept;
+    net::awaitable<http_result>
+    async_upload_stream(const std::string& url, const http_request& req) noexcept;
 
     // ------------------------------------------------------------
     // 以下接口为手工精细控制.
@@ -135,15 +136,15 @@ public:
     net::awaitable<boost::system::error_code> async_connect(const urls::url_view& url);
 
     // 发送请求并接收响应.
-    net::awaitable<boost::system::error_code> async_send_request(const urls::url_view& url,
-        const http_request& req);
+    net::awaitable<boost::system::error_code>
+    async_send_request(const urls::url_view& url, const http_request& req);
 
     // 读取完整响应 (处理下载文件/传输回调).
     net::awaitable<http_result> async_read_response();
 
     // 仅发送 HTTP 请求头.
-    net::awaitable<boost::system::error_code> async_write_header(const urls::url_view& url,
-        const http_request& req);
+    net::awaitable<boost::system::error_code>
+    async_write_header(const urls::url_view& url, const http_request& req);
 
     // 写入 HTTP chunk (有数据时用 chunk_body, 空 buffer 时写入终止 chunk_last).
     net::awaitable<boost::system::error_code> async_write_chunk(net::const_buffer buffer);

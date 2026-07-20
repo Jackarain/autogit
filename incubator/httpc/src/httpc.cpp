@@ -52,16 +52,11 @@ namespace {
     std::string build_host_header(const urls::url_view& url)
     {
         std::string host_value(url.host());
-        if (url.has_port())
+        auto port = url.port_number();
+        if (port != 0)
         {
-            host_value += ':';
-            host_value.append(url.port().data(), url.port().size());
-        }
-        else
-        {
-            auto port = url.port_number();
             if ((url.scheme_id() == urls::scheme::https && port != 443)
-                || (url.scheme_id() != urls::scheme::https && port != 80))
+                || (url.scheme_id() != urls::scheme::http && port != 80))
             {
                 host_value += ':';
                 host_value += std::to_string(port);
@@ -88,9 +83,13 @@ namespace {
     template<typename Body>
     void setup_request_from_url(http::request<Body>& req, const urls::url_view& url)
     {
-        req.target(build_request_target(url));
+        auto target = build_request_target(url);
+        req.target(target);
         if (req.find(http::field::host) == req.end())
-            req.set(http::field::host, build_host_header(url));
+        {
+            auto host = build_host_header(url);
+            req.set(http::field::host, host);
+        }
     }
 
     // 将源请求的通用头部复制到目标请求.
@@ -197,7 +196,7 @@ namespace {
 // 构造 / 析构
 // -----------------------------------------------------------------------
 
-http_client::http_client(net::any_io_executor ex)
+http_client::http_client(net::any_io_executor ex, const net::const_buffer& ca_certs)
     : executor_(ex)
     , user_agent_(default_user_agent)
 {
@@ -216,6 +215,12 @@ http_client::http_client(net::any_io_executor ex)
             {
                 return true;
             });
+    }
+    else
+    {
+        if (ca_certs.size() > 0)
+		    ssl_ctx_.add_certificate_authority(
+                net::buffer(ca_certs.data(), ca_certs.size()));
     }
 }
 
@@ -279,12 +284,17 @@ net::awaitable<boost::system::error_code> http_client::async_connect(const urls:
         }
     } timeout_defer {this->stream_socket_};
 
+    // 1. 创建并连接 TCP 流
+    auto tcp_sock = std::make_unique<tcp_stream>(co_await net::this_coro::executor);
+    tcp_sock->expires_never();
+    bool has_timeout = connect_timeout_ == std::chrono::milliseconds::max();
+
     if (use_ssl)
     {
         // ---- HTTPS ----
-        // 1. 创建并连接 TCP 流
-        auto tcp_sock = std::make_unique<tcp_stream>(co_await net::this_coro::executor);
-        tcp_sock->expires_after(connect_timeout_);
+        if (!has_timeout)
+            tcp_sock->expires_after(connect_timeout_);
+
         co_await tcp_sock->async_connect(resolve_result, net::redirect_error(ec));
         if (ec)
             co_return ec;
@@ -294,7 +304,8 @@ net::awaitable<boost::system::error_code> http_client::async_connect(const urls:
         // tcp_sock 此时为空 (moved-from)
 
         // 3. SSL 握手
-        ssl_sock->next_layer().expires_after(connect_timeout_);
+        if (!has_timeout)
+            ssl_sock->next_layer().expires_after(connect_timeout_);
         co_await ssl_sock->async_handshake(ssl::stream_base::client, net::redirect_error(ec));
         if (ec)
             co_return ec;
@@ -305,8 +316,8 @@ net::awaitable<boost::system::error_code> http_client::async_connect(const urls:
     else
     {
         // ---- HTTP ----
-        auto tcp_sock = std::make_unique<tcp_stream>(co_await net::this_coro::executor);
-        tcp_sock->expires_after(connect_timeout_);
+        if (!has_timeout)
+            tcp_sock->expires_after(connect_timeout_);
         co_await tcp_sock->async_connect(resolve_result, net::redirect_error(ec));
         if (ec)
             co_return ec;
@@ -321,8 +332,8 @@ net::awaitable<boost::system::error_code> http_client::async_connect(const urls:
 // 发送请求 & 接收响应
 // -----------------------------------------------------------------------
 
-net::awaitable<boost::system::error_code> http_client::async_send_request(const urls::url_view& url,
-    const http_request& req)
+net::awaitable<boost::system::error_code>
+http_client::async_send_request(const urls::url_view& url, const http_request& req)
 {
     boost::system::error_code ec;
 
@@ -333,7 +344,7 @@ net::awaitable<boost::system::error_code> http_client::async_send_request(const 
     setup_request_from_url(request, url);
 
     // 设置 User-Agent (如果未设置)
-    if (request.find(http::field::user_agent) == request.end())
+    if (!user_agent_.empty())
         request.set(http::field::user_agent, user_agent_);
 
     // 设置 Connection 头
@@ -363,6 +374,7 @@ net::awaitable<http_result> http_client::async_read_response()
 {
     http::response_parser<http::dynamic_body> parser;
     parser.eager(true);
+    parser.body_limit(std::numeric_limits<std::uint64_t>::max());
 
     boost::system::error_code ec;
 
@@ -406,7 +418,8 @@ net::awaitable<http_result> http_client::async_read_response()
                 [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
             {
                 boost::system::error_code ec;
-                co_await http::async_read_some(*stream_ptr,
+                co_await http::async_read_some(
+                    *stream_ptr,
                     buffer_,
                     parser,
                     net::redirect_error(ec));
@@ -475,8 +488,8 @@ net::awaitable<http_result> http_client::async_read_response()
 // async_perform 主入口
 // -----------------------------------------------------------------------
 
-net::awaitable<http_result> http_client::async_perform(const std::string& url,
-    const http_request& req) noexcept
+net::awaitable<http_result>
+http_client::async_perform(const std::string& url, const http_request& req) noexcept
 {
     auto send_func =
         [&](const urls::url_view& url_view) -> net::awaitable<boost::system::error_code>
@@ -535,8 +548,8 @@ net::awaitable<http_result> http_client::async_upload_file(
 // async_upload_stream
 // -----------------------------------------------------------------------
 
-net::awaitable<http_result> http_client::async_upload_stream(const std::string& url,
-    const http_request& req) noexcept
+net::awaitable<http_result>
+http_client::async_upload_stream(const std::string& url, const http_request& req) noexcept
 {
     auto send_func =
         [&](const urls::url_view& url_view) -> net::awaitable<boost::system::error_code>
@@ -604,8 +617,8 @@ net::awaitable<http_result> http_client::async_upload_stream(const std::string& 
 // async_write_header
 // -----------------------------------------------------------------------
 
-net::awaitable<boost::system::error_code> http_client::async_write_header(const urls::url_view& url,
-    const http_request& req)
+net::awaitable<boost::system::error_code>
+http_client::async_write_header(const urls::url_view& url, const http_request& req)
 {
     boost::system::error_code ec;
 
