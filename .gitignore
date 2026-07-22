@@ -279,5 +279,6 @@ mingw/
 llvm/
 linux/
 
+.qwen/
 .idea/
 .cache/
