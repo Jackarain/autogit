@@ -153,41 +153,33 @@ const char* get_home_dir(void)
  */
 static int build_ssh_credential(git_cred** cred, const char* username_from_url)
 {
+    const char* home = get_home_dir();
+    if (!home)
+        home = "";
+
     // 构建默认 SSH 密钥目录：~/.ssh/
-    auto default_sshdir = std::string(get_home_dir()) +
-#ifdef WIN32
+    std::string ssh_dir = std::string(home) +
+#ifdef _WIN32
                           "\\.ssh\\";
 #else
                           "/.ssh/";
-#endif // WIN32（Windows 平台）
+#endif // _WIN32（Windows 平台）
 
-    const char* private_key = nullptr;
-    const char* public_key = nullptr;
-
-    // 优先使用全局指定的私钥路径，否则在默认目录下查找。
-    if (fs::exists(global_ssh_privkey))
-    {
-        private_key = global_ssh_privkey.c_str();
-    }
+    // 私钥路径：优先使用全局指定的已存在路径，否则视为 ~/.ssh/ 下的
+    // 文件名（缺省为 id_rsa）。
+    std::string private_key_path;
+    if (!global_ssh_privkey.empty() && fs::exists(global_ssh_privkey))
+        private_key_path = global_ssh_privkey;
     else
-    {
-        default_sshdir += (global_ssh_privkey.empty() ? "idrsa" : global_ssh_privkey);
-        private_key = default_sshdir.c_str();
-    }
+        private_key_path = ssh_dir + (global_ssh_privkey.empty() ? "id_rsa" : global_ssh_privkey);
 
-    // 公钥路径处理：优先使用全局指定路径，否则尝试附加到默认目录。
-    if (fs::exists(global_ssh_pubkey))
-    {
-        public_key = global_ssh_pubkey.c_str();
-    }
-    else
-    {
-        auto pubkey_dir = (global_ssh_pubkey.empty() ? "" : global_ssh_pubkey);
-
-        default_sshdir = pubkey_dir.empty() ? "" : default_sshdir + pubkey_dir;
-
-        public_key = default_sshdir.empty() ? nullptr : default_sshdir.c_str();
-    }
+    // 公钥路径：优先使用全局指定的已存在路径，否则视为 ~/.ssh/ 下的
+    // 文件名；未指定时传 NULL（libssh2 可从私钥推导公钥）。
+    std::string public_key_path;
+    if (!global_ssh_pubkey.empty() && fs::exists(global_ssh_pubkey))
+        public_key_path = global_ssh_pubkey;
+    else if (!global_ssh_pubkey.empty())
+        public_key_path = ssh_dir + global_ssh_pubkey;
 
     // 私钥加密口令，无口令时传 NULL。
     const char* passphrase = global_ssh_passphrase.empty() ? nullptr
@@ -195,9 +187,9 @@ static int build_ssh_credential(git_cred** cred, const char* username_from_url)
 
     return git_cred_ssh_key_new(cred,
         username_from_url,
-        public_key,  // 这是公钥的路径.
-        private_key, // 这是私钥的路径.
-        passphrase   // 如果你的私钥有密码.
+        public_key_path.empty() ? nullptr : public_key_path.c_str(), // 公钥的路径.
+        private_key_path.c_str(),                                    // 私钥的路径.
+        passphrase                                                   // 私钥的密码.
     );
 }
 
@@ -268,6 +260,12 @@ static int process_status_entries(
     // 遍历状态列表中的每个条目，自动处理工作目录变更。
     for (const git_status_entry* entry : status)
     {
+        // 仅处理工作目录（index_to_workdir）存在差异的条目。当条目只有
+        // 已暂存/索引变更（head_to_index）而无工作目录变更时，
+        // index_to_workdir 为 NULL，直接解引用会空指针崩溃。
+        if (!entry->index_to_workdir)
+            continue;
+
         const char* old_file_path = entry->index_to_workdir->old_file.path;
         auto handle = index.native();
         int ret = 0;
@@ -562,9 +560,9 @@ int gitwork(gitpp::repo& repo)
     if (write_tree_and_commit(repo, index, commit_count) != EXIT_SUCCESS)
         return EXIT_FAILURE;
 
-    // 步骤3：无变更且非强制推送时，无需继续。
+    // 步骤3：无变更且非强制推送时，无需继续（正常情况，非错误）。
     if (commit_count == 0 && !global_force_push)
-        return EXIT_FAILURE;
+        return EXIT_SUCCESS;
 
     // 步骤4：推送 LFS 对象（如启用）。
     push_lfs_objects(repo);
@@ -950,7 +948,9 @@ net::awaitable<int> co_main(int argc, char** argv)
     }
 
     // 步骤2：初始化日志系统。
-    if (vm.count("log-dir"))
+    // 注意：选项注册名为 "log_dir"（build_options_description 中的键），
+    // 因此必须用 vm.count("log_dir") 查询，写成 "log-dir" 会永远查不到。
+    if (vm.count("log_dir"))
     {
         xlogger::toggle_write_logging(true);
         xlogger::init_logging(log_dir);

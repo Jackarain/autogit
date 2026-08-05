@@ -722,6 +722,14 @@ namespace lfs {
                 EVP_MD_CTX_free(stream->hash_ctx);
                 stream->hash_ctx = nullptr;
             }
+            else
+            {
+                // hash_ctx 为空（初始化失败等异常情况），避免读取未初始化的
+                // 缓冲区，直接返回错误并清理临时文件。
+                std::error_code ec;
+                std::filesystem::remove(stream->tmp_path, ec);
+                return -1;
+            }
             auto oid_hex = sha256_hex(hash);
 
             // 关闭临时文件。
@@ -897,6 +905,12 @@ namespace lfs {
                 stream->tmp_file.open(stream->tmp_path, std::ios::binary);
                 if (!stream->tmp_file.is_open())
                 {
+                    // 释放已分配的哈希上下文, 避免内存泄漏。
+                    if (stream->hash_ctx)
+                    {
+                        EVP_MD_CTX_free(stream->hash_ctx);
+                        stream->hash_ctx = nullptr;
+                    }
                     delete stream;
                     return -1;
                 }

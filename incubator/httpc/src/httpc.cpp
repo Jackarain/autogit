@@ -56,7 +56,7 @@ namespace {
         if (port != 0)
         {
             if ((url.scheme_id() == urls::scheme::https && port != 443)
-                || (url.scheme_id() != urls::scheme::http && port != 80))
+                || (url.scheme_id() == urls::scheme::http && port != 80))
             {
                 host_value += ':';
                 host_value += std::to_string(port);
@@ -393,7 +393,10 @@ net::awaitable<http_result> http_client::async_read_response()
         co_return ec;
 
     // 如果有 body, 则分块读取
-    if (!parser.is_done())
+    // 注意: parser 使用 eager 模式, 读取 header 时可能已经将整个 body
+    // 解析进 parser, 此时 parser.is_done() 为 true。因此只要存在下载文件
+    // 或传输回调, 都必须处理 parser 中已经解析的 body 数据。
+    if (!parser.is_done() || !download_file_path_.empty() || transfer_handler_)
     {
         // 如果需要下载到文件, 打开文件
         if (!download_file_path_.empty())
@@ -408,28 +411,9 @@ net::awaitable<http_result> http_client::async_read_response()
             download_file_.reset(file);
         }
 
-        // 分块读取 body
-        while (!parser.is_done())
+        // 将 parser 中已解析的 body 数据写入下载文件或传递给传输回调。
+        auto flush_parsed_body = [&]()
         {
-            set_stream_timeout();
-
-            // 读一块
-            auto read_some_visitor =
-                [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
-            {
-                boost::system::error_code ec;
-                co_await http::async_read_some(
-                    *stream_ptr,
-                    buffer_,
-                    parser,
-                    net::redirect_error(ec));
-                co_return ec;
-            };
-
-            ec = co_await boost::variant2::visit(read_some_visitor, stream_socket_);
-            clear_stream_timeout();
-
-            // 处理 body 数据 (从 parser 中的 message 获取)
             auto& msg = parser.get();
             auto& body = msg.body();
             for (auto const& buf : body.data())
@@ -452,6 +436,31 @@ net::awaitable<http_result> http_client::async_read_response()
                 }
             }
             body.clear();
+        };
+
+        // 分块读取 body
+        while (!parser.is_done())
+        {
+            set_stream_timeout();
+
+            // 读一块
+            auto read_some_visitor =
+                [&](auto& stream_ptr) -> net::awaitable<boost::system::error_code>
+            {
+                boost::system::error_code ec;
+                co_await http::async_read_some(
+                    *stream_ptr,
+                    buffer_,
+                    parser,
+                    net::redirect_error(ec));
+                co_return ec;
+            };
+
+            ec = co_await boost::variant2::visit(read_some_visitor, stream_socket_);
+            clear_stream_timeout();
+
+            // 处理本轮读取到的 body 数据。
+            flush_parsed_body();
 
             // 检查错误
             if (ec)
@@ -470,6 +479,10 @@ net::awaitable<http_result> http_client::async_read_response()
                 co_return ec;
             }
         }
+
+        // 处理读取 header 时 eager 解析器已经解析完成的 body 数据
+        // （此时 parser.is_done() 为 true, 上面的循环不会执行）。
+        flush_parsed_body();
 
         // 关闭下载文件
         download_file_.reset();
