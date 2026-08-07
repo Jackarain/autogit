@@ -151,7 +151,7 @@ docker run -d \
 | `--quiet` | `false` | Quiet mode (suppress logging) |
 | `--log_dir` | — | Log file directory |
 | `--lfs` | `false` | Enable Git LFS support; files matching LFS patterns in `.gitattributes` will be stored as pointers |
-| `--lfs_pattern` | — | Additional LFS file patterns (glob), e.g. `--lfs_pattern '*.psd' --lfs_pattern '*.zip'` |
+| `--lfs_pattern` | — | Additional LFS file patterns (glob), e.g. `--lfs_pattern '*.psd' --lfs_pattern '*.zip'`; multiple patterns can also be separated by `;` in a single argument, e.g. `--lfs_pattern '*.iso;*.mmdb;*.bin'` |
 | `--lfs_push_url` | — | LFS remote URL for pushing objects; has lower priority than config files (`.lfsconfig`, `.git/lfsconfig`, `.git/config`); only takes effect when `lfs.url` is not set in those files |
 
 ---

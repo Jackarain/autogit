@@ -839,12 +839,53 @@ static po::options_description build_options_description(std::string& git_dir,
         "be stored as LFS pointers.")("lfs_pattern",
         po::value<std::vector<std::string>>(&global_lfs_patterns)->multitoken(),
         "Additional LFS file patterns (glob) to track, e.g. --lfs_pattern '*.psd' --lfs_pattern "
-        "'*.zip'. These supplement patterns from .gitattributes.")("lfs_push_url",
+        "'*.zip'. Patterns can be separated by ';' in a single argument, e.g. --lfs_pattern "
+        "'*.psd;*.zip'. These supplement patterns from .gitattributes.")("lfs_push_url",
         po::value<std::string>(&global_lfs_push_url)->default_value(""),
         "LFS remote URL for pushing objects. Overrides the url setting in .lfsconfig. If empty, "
         "the repository remote origin URL is used.");
 
     return desc;
+}
+
+/**
+ * @brief 将 global_lfs_patterns 中每条参数按分号拆分为多个 LFS 模式。
+ *
+ * 支持在一条参数中携带多个模式，例如
+ *     --lfs_pattern "*.iso;*.mmdb;*.bin"
+ * 等价于
+ *     --lfs_pattern '*.iso' --lfs_pattern '*.mmdb' --lfs_pattern '*.bin'。
+ * 拆分时去除每个模式首尾空白，并丢弃空模式。
+ */
+static void split_lfs_patterns()
+{
+    std::vector<std::string> split;
+    split.reserve(global_lfs_patterns.size());
+
+    for (const auto& entry : global_lfs_patterns)
+    {
+        std::string::size_type begin = 0;
+        while (begin <= entry.size())
+        {
+            const auto sep = entry.find(';', begin);
+            std::string pat =
+                entry.substr(begin, sep == std::string::npos ? std::string::npos : sep - begin);
+
+            // 去除模式首尾空白。
+            const auto first = pat.find_first_not_of(" \t\r\n");
+            if (first != std::string::npos)
+            {
+                const auto last = pat.find_last_not_of(" \t\r\n");
+                split.push_back(pat.substr(first, last - first + 1));
+            }
+
+            if (sep == std::string::npos)
+                break;
+            begin = sep + 1;
+        }
+    }
+
+    global_lfs_patterns = std::move(split);
 }
 
 /**
@@ -889,6 +930,10 @@ static bool parse_command_line(int argc,
         po::store(po::parse_config_file(ifs, desc), vm);
         po::notify(vm);
     }
+
+    // 拆分 --lfs_pattern 中的分号分隔模式，使其支持
+    // 一条参数携带多个 LFS 模式（如 "*.iso;*.mmdb;*.bin"）。
+    split_lfs_patterns();
 
     return true;
 }

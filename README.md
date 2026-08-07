@@ -151,7 +151,7 @@ docker run -d \
 | `--quiet` | `false` | 静默模式 |
 | `--log_dir` | — | 日志文件目录 |
 | `--lfs` | `false` | 启用 Git LFS 支持，匹配 `.gitattributes` 中 LFS 模式的文件将以指针文件存储 |
-| `--lfs_pattern` | — | 额外的 LFS 文件匹配模式（glob），例如 `--lfs_pattern '*.psd' --lfs_pattern '*.zip'` |
+| `--lfs_pattern` | — | 额外的 LFS 文件匹配模式（glob），例如 `--lfs_pattern '*.psd' --lfs_pattern '*.zip'`；多个模式也可用分号分隔写在一条参数中，如 `--lfs_pattern '*.iso;*.mmdb;*.bin'` |
 | `--lfs_push_url` | — | LFS 对象推送 URL，优先级低于 `.lfsconfig` 等配置文件；仅在配置文件中未设置 `lfs.url` 时生效 |
 
 ---
