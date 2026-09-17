@@ -65,6 +65,7 @@ public:
     using executor_type = net::any_io_executor;
 
     using transfer_handler = std::function<int(void*, std::size_t)>;
+    using http_result_handler = std::function<void(const http_response&)>;
 
 public:
     // 构造函数.
@@ -90,8 +91,10 @@ public:
     //  if (result)
     //      auto& resp = *result;    // http_response
     //
+    // 参数按值传入: 该接口是惰性协程, 调用后可能延迟到实参离开作用域才恢复,
+    // 因此协程帧必须持有 url/req 的独立副本.
     net::awaitable<http_result>
-    async_perform(const std::string& url, const http_request& req) noexcept;
+    async_perform(std::string url, http_request req) noexcept;
 
     // 异步上传文件到服务器.
     // 使用 http::file_body 流式上传, 支持重定向.
@@ -110,9 +113,9 @@ public:
     //      auto& resp = *result;    // http_response
     //
     net::awaitable<http_result> async_upload_file(
-        const std::string& url,
-        const std::string& file_path,
-        const http_request& req = http_request {}) noexcept;
+        std::string url,
+        std::string file_path,
+        http_request req = http_request {}) noexcept;
 
     // 异步上传流数据.
     // 使用 upload_handler 作为数据源流式上传, 支持重定向.
@@ -127,7 +130,7 @@ public:
     //      "https://example.com/upload", req);
     //
     net::awaitable<http_result>
-    async_upload_stream(const std::string& url, const http_request& req) noexcept;
+    async_upload_stream(std::string url, http_request req) noexcept;
 
     // ------------------------------------------------------------
     // 以下接口为手工精细控制.
@@ -140,7 +143,12 @@ public:
     async_send_request(const urls::url_view& url, const http_request& req);
 
     // 读取完整响应 (处理下载文件/传输回调).
-    net::awaitable<http_result> async_read_response();
+    //
+    // redirects_remaining 为调用方剩余可跟随的重定向次数. 当响应为重定向
+    // (且带 Location) 且 redirects_remaining > 0 时, 仅读取响应头, 不将响应体
+    // 写入下载文件, 也不触发 transfer_handler, 以免跳转过程中的响应体混入
+    // 最终下载内容; 调用方随后可安全地跟随该重定向.
+    net::awaitable<http_result> async_read_response(int redirects_remaining = 0);
 
     // 仅发送 HTTP 请求头.
     net::awaitable<boost::system::error_code>
@@ -166,19 +174,23 @@ public:
 
     // 设置传输回调函数, 用于获取传输进度.
     void set_transfer_handler(transfer_handler&& handler) noexcept;
+    transfer_handler& get_transfer_handler() noexcept;
+
+    // 设置 http_result 回调函数, 用于获取响应头和状态码.
+    void set_http_result_handler(http_result_handler&& handler) noexcept;
+    http_result_handler& get_http_result_handler() noexcept;
 
     // 设置 User-agent.
     void user_agent(const std::string& ua) noexcept;
+
+    // 设置 TLS SNI (为空则不发送 SNI).
+    void set_sni(const std::string& sni) noexcept;
 
     // 检查和设置证书认证是否启用 (默认关闭).
     bool check_certificate() const noexcept;
     void check_certificate(bool check) noexcept;
 
-    // 设置是否跟随重定向 (默认开启).
-    bool follow_redirect() const noexcept;
-    void follow_redirect(bool follow) noexcept;
-
-    // 设置最大重定向次数 (默认 5).
+    // 设置最大重定向次数 (0 表示不重定向, 默认 5).
     int max_redirects() const noexcept;
     void max_redirects(int n) noexcept;
 
@@ -212,6 +224,9 @@ private:
     // 传输回调.
     transfer_handler transfer_handler_;
 
+    // http_result 回调.
+    http_result_handler http_result_handler_;
+
     // 自定义 fclose 删除器.
     struct fclose_deleter
     {
@@ -227,11 +242,13 @@ private:
     // User-agent.
     std::string user_agent_;
 
+    // TLS SNI 扩展.
+    std::string sni_;
+
     // 证书验证开关.
     bool check_certificate_ {false};
 
     // 重定向设置.
-    bool follow_redirect_ {true};
     int max_redirects_ {5};
 
     // 超时设置, 默认永不超时.

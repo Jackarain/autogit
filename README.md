@@ -165,7 +165,7 @@ autogit 基于以下核心技术构建：
 - **Boost 库栈** — Asio（网络 & 异步）、Filesystem（文件系统）、Program Options（参数解析）
 - **watchman 模块** — 跨平台文件系统事件监控抽象层
 - **gitpp** — 基于 libgit2 的现代 C++ RAII 封装库（位于 `incubator/gitpp/`）
-- **httpc** — 基于 Boost.Beast 和 Boost.Asio 的 C++20 协程 HTTP 客户端库（位于 `incubator/httpc/`），支持 SSL、连接复用和流式请求/响应
+- **httpc** — 基于 Boost.Beast 和 Boost.Asio 的 C++20 协程 HTTP 客户端库（位于 `third_party/httpc/`），支持 SSL、连接复用和流式请求/响应
 
 ---
 

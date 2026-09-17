@@ -9,6 +9,7 @@
 //
 
 #include "httpc/httpc.hpp"
+#include "httpc/detail_http_helpers.hpp"
 
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/redirect_error.hpp>
@@ -21,176 +22,84 @@
 
 #include <boost/core/ignore_unused.hpp>
 
-#include <boost/asio/ssl/impl/src.hpp>
-#include <boost/beast/src.hpp>
+#if defined(OPENSSL_VERSION_NUMBER)
+# include <openssl/ssl.h>
+#endif
 
-#include <charconv>
-#include <fstream>
-#include <sstream>
+#if defined(BUILD_ASIO_SSL_AND_BEAST_SRC)
+# include <boost/asio/ssl/impl/src.hpp>
+# include <boost/beast/src.hpp>
+#endif
+
 #include <system_error>
 
 namespace httpc {
 
-// 默认 User-Agent.
-inline const std::string default_user_agent = "httpc/1.0 (Boost.Beast)";
-
-// 常用 User-Agent 常量.
-inline const std::string chrome_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                                             "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                             "Chrome/120.0.0.0 Safari/537.36";
-
-inline const std::string firefox_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) "
-                                              "Gecko/20100101 Firefox/120.0";
-
 // -----------------------------------------------------------------------
-// 辅助函数 (匿名命名空间)
+// 内部辅助函数
 // -----------------------------------------------------------------------
 
-namespace {
+// 重定向循环: 连接→发送→读取→重定向检查.
+template<typename SendFunc>
+net::awaitable<http_result>
+async_perform_loop(http_client& client, const std::string& url, SendFunc&& send)
+{
+    boost::system::error_code ec;
+    std::string current_url = url;
+    int redirect_count = 0;
 
-    // 从 URL 构建 Host 头值.
-    std::string build_host_header(const urls::url_view& url)
+    while (true)
     {
-        std::string host_value(url.host());
-        auto port = url.port_number();
-        if (port != 0)
+        auto url_result = urls::parse_uri_reference(current_url);
+        if (!url_result)
+            co_return url_result.error();
+        auto url_view = *url_result;
+
+        ec = co_await client.async_connect(url_view);
+        if (ec)
+            co_return ec;
+
+        client.clear_stream_timeout();
+
+        ec = co_await send(url_view);
+        if (ec)
+            co_return ec;
+
+        auto result =
+            co_await client.async_read_response(client.max_redirects() - redirect_count);
+        if (!result)
+            co_return result.error();
+
+        auto& resp = *result;
+
+        if (client.get_http_result_handler())
+            client.get_http_result_handler()(resp);
+
+        if (redirect_count < client.max_redirects())
         {
-            if ((url.scheme_id() == urls::scheme::https && port != 443)
-                || (url.scheme_id() == urls::scheme::http && port != 80))
+            auto status = resp.result_int();
+            if (status == 301 || status == 302 || status == 303 || status == 307
+                || status == 308)
             {
-                host_value += ':';
-                host_value += std::to_string(port);
-            }
-        }
-        return host_value;
-    }
-
-    // 从 URL 构建请求目标 (path + query).
-    std::string build_request_target(const urls::url_view& url)
-    {
-        std::string target(url.encoded_path());
-        if (url.has_query())
-        {
-            target += '?';
-            target.append(url.encoded_query().data(), url.encoded_query().size());
-        }
-        if (target.empty())
-            target = "/";
-        return target;
-    }
-
-    // 在任意 body 类型的请求上设置来自 URL 的目标和 Host.
-    template<typename Body>
-    void setup_request_from_url(http::request<Body>& req, const urls::url_view& url)
-    {
-        auto target = build_request_target(url);
-        req.target(target);
-        if (req.find(http::field::host) == req.end())
-        {
-            auto host = build_host_header(url);
-            req.set(http::field::host, host);
-        }
-    }
-
-    // 将源请求的通用头部复制到目标请求.
-    template<typename Body>
-    void copy_request_headers(http::request<Body>& req, const http_request& source)
-    {
-        // Host
-        {
-            auto it = source.find(http::field::host);
-            if (it != source.end())
-                req.set(http::field::host, it->value());
-        }
-
-        // User-Agent
-        {
-            auto it = source.find(http::field::user_agent);
-            if (it != source.end())
-                req.set(http::field::user_agent, it->value());
-            else
-                req.set(http::field::user_agent, default_user_agent);
-        }
-
-        // Connection
-        {
-            auto it = source.find(http::field::connection);
-            if (it != source.end())
-                req.set(http::field::connection, it->value());
-            else
-                req.keep_alive(false);
-        }
-
-        // 拷贝用户自定义请求头 (排除已处理字段).
-        for (auto const& h : source)
-        {
-            if (h.name() != http::field::host && h.name() != http::field::user_agent
-                && h.name() != http::field::connection)
-            {
-                req.set(h.name_string(), h.value());
-            }
-        }
-    }
-
-    // 重定向循环: 连接→发送→读取→重定向检查.
-    template<typename SendFunc>
-    net::awaitable<http_result>
-    async_perform_loop(http_client& client, const std::string& url, SendFunc&& send)
-    {
-        boost::system::error_code ec;
-        std::string current_url = url;
-        int redirect_count = 0;
-
-        while (true)
-        {
-            auto url_result = urls::parse_uri_reference(current_url);
-            if (!url_result)
-                co_return url_result.error();
-            auto url_view = *url_result;
-
-            ec = co_await client.async_connect(url_view);
-            if (ec)
-                co_return ec;
-
-            client.clear_stream_timeout();
-
-            ec = co_await send(url_view);
-            if (ec)
-                co_return ec;
-
-            auto result = co_await client.async_read_response();
-            if (!result)
-                co_return result.error();
-
-            auto& resp = *result;
-
-            if (client.follow_redirect() && redirect_count < client.max_redirects())
-            {
-                auto status = resp.result_int();
-                if (status == 301 || status == 302 || status == 303 || status == 307
-                    || status == 308)
+                auto location = resp.find(http::field::location);
+                if (location != resp.end())
                 {
-                    auto location = resp.find(http::field::location);
-                    if (location != resp.end())
+                    std::string new_url(location->value());
+                    auto new_url_result = urls::parse_uri_reference(new_url);
+                    if (new_url_result)
                     {
-                        std::string new_url(location->value());
-                        auto new_url_result = urls::parse_uri_reference(new_url);
-                        if (new_url_result)
-                        {
-                            current_url = new_url;
-                            redirect_count++;
-                            client.close();
-                            continue;
-                        }
+                        current_url = new_url;
+                        redirect_count++;
+                        client.close();
+                        continue;
                     }
                 }
             }
-
-            co_return result;
         }
-    }
 
-} // anonymous namespace
+        co_return result;
+    }
+}
 
 // -----------------------------------------------------------------------
 // 构造 / 析构
@@ -198,10 +107,10 @@ namespace {
 
 http_client::http_client(net::any_io_executor ex, const net::const_buffer& ca_certs)
     : executor_(ex)
-    , user_agent_(default_user_agent)
+    , user_agent_(detail::default_user_agent)
 {
     // 分配保留缓存空间.
-    buffer_.reserve(5 * 1024 * 1024);
+    buffer_.reserve(64 * 1024);
 
     // 配置 SSL 上下文
     ssl_ctx_.set_default_verify_paths();
@@ -303,7 +212,13 @@ net::awaitable<boost::system::error_code> http_client::async_connect(const urls:
         auto ssl_sock = std::make_unique<ssl_stream>(std::move(*tcp_sock), ssl_ctx_);
         // tcp_sock 此时为空 (moved-from)
 
-        // 3. SSL 握手
+        // 3. SSL 握手 (可选 SNI)
+        if (!sni_.empty())
+        {
+#if defined(OPENSSL_VERSION_NUMBER)
+            SSL_set_tlsext_host_name(ssl_sock->native_handle(), sni_.c_str());
+#endif
+        }
         if (!has_timeout)
             ssl_sock->next_layer().expires_after(connect_timeout_);
         co_await ssl_sock->async_handshake(ssl::stream_base::client, net::redirect_error(ec));
@@ -341,7 +256,7 @@ http_client::async_send_request(const urls::url_view& url, const http_request& r
     http_request request = req;
 
     // 使用辅助函数设置目标路径和 Host 头.
-    setup_request_from_url(request, url);
+    detail::setup_request_from_url(request, url);
 
     // 设置 User-Agent (如果未设置)
     if (!user_agent_.empty())
@@ -370,7 +285,7 @@ http_client::async_send_request(const urls::url_view& url, const http_request& r
 // 读取响应 (支持下载文件 / 传输回调)
 // -----------------------------------------------------------------------
 
-net::awaitable<http_result> http_client::async_read_response()
+net::awaitable<http_result> http_client::async_read_response(int redirects_remaining)
 {
     http::response_parser<http::dynamic_body> parser;
     parser.eager(true);
@@ -392,11 +307,23 @@ net::awaitable<http_result> http_client::async_read_response()
     if (ec)
         co_return ec;
 
+    // 若该响应是即将被跟随的重定向, 只保留响应头: 不读取响应体, 不写下载
+    // 文件, 也不触发 transfer_handler. 调用方在跟随前会关闭当前连接, 因此
+    // 无需把 body 读完.
+    {
+        auto const status = parser.get().result_int();
+        bool const is_redirect = status == 301 || status == 302 || status == 303
+                                 || status == 307 || status == 308;
+        if (is_redirect && redirects_remaining > 0
+            && parser.get().find(http::field::location) != parser.get().end())
+        {
+            buffer_.clear();
+            co_return parser.release();
+        }
+    }
+
     // 如果有 body, 则分块读取
-    // 注意: parser 使用 eager 模式, 读取 header 时可能已经将整个 body
-    // 解析进 parser, 此时 parser.is_done() 为 true。因此只要存在下载文件
-    // 或传输回调, 都必须处理 parser 中已经解析的 body 数据。
-    if (!parser.is_done() || !download_file_path_.empty() || transfer_handler_)
+    if (!parser.is_done())
     {
         // 如果需要下载到文件, 打开文件
         if (!download_file_path_.empty())
@@ -410,33 +337,6 @@ net::awaitable<http_result> http_client::async_read_response()
             }
             download_file_.reset(file);
         }
-
-        // 将 parser 中已解析的 body 数据写入下载文件或传递给传输回调。
-        auto flush_parsed_body = [&]()
-        {
-            auto& msg = parser.get();
-            auto& body = msg.body();
-            for (auto const& buf : body.data())
-            {
-                auto data = static_cast<const char*>(buf.data());
-                auto size = buf.size();
-                if (size == 0)
-                    continue;
-
-                // 写入文件
-                if (download_file_)
-                {
-                    std::fwrite(data, 1, size, download_file_.get());
-                }
-
-                // 传输回调
-                if (transfer_handler_)
-                {
-                    transfer_handler_((char*)data, size);
-                }
-            }
-            body.clear();
-        };
 
         // 分块读取 body
         while (!parser.is_done())
@@ -459,8 +359,32 @@ net::awaitable<http_result> http_client::async_read_response()
             ec = co_await boost::variant2::visit(read_some_visitor, stream_socket_);
             clear_stream_timeout();
 
-            // 处理本轮读取到的 body 数据。
-            flush_parsed_body();
+            // 处理 body 数据 (从 parser 中的 message 获取)
+            auto& msg = parser.get();
+            auto& body = msg.body();
+            for (auto const& buf : body.data())
+            {
+                auto data = static_cast<const char*>(buf.data());
+                auto size = buf.size();
+                if (size == 0)
+                    continue;
+
+                // 写入文件
+                if (download_file_)
+                {
+                    std::fwrite(data, 1, size, download_file_.get());
+                }
+
+                // 传输回调
+                if (transfer_handler_)
+                {
+                    transfer_handler_((char*)data, size);
+                }
+            }
+            // 未设置下载文件/传输回调时保留 body 内容, 供调用方
+            // 通过 resp.body() 读取完整响应体; 否则消费后清空.
+            if (download_file_ || transfer_handler_)
+                body.clear();
 
             // 检查错误
             if (ec)
@@ -480,10 +404,6 @@ net::awaitable<http_result> http_client::async_read_response()
             }
         }
 
-        // 处理读取 header 时 eager 解析器已经解析完成的 body 数据
-        // （此时 parser.is_done() 为 true, 上面的循环不会执行）。
-        flush_parsed_body();
-
         // 关闭下载文件
         download_file_.reset();
     }
@@ -502,7 +422,7 @@ net::awaitable<http_result> http_client::async_read_response()
 // -----------------------------------------------------------------------
 
 net::awaitable<http_result>
-http_client::async_perform(const std::string& url, const http_request& req) noexcept
+http_client::async_perform(std::string url, http_request req) noexcept
 {
     auto send_func =
         [&](const urls::url_view& url_view) -> net::awaitable<boost::system::error_code>
@@ -518,7 +438,7 @@ http_client::async_perform(const std::string& url, const http_request& req) noex
 // -----------------------------------------------------------------------
 
 net::awaitable<http_result> http_client::async_upload_file(
-    const std::string& url, const std::string& file_path, const http_request& req) noexcept
+    std::string url, std::string file_path, http_request req) noexcept
 {
     auto send_func =
         [&](const urls::url_view& url_view) -> net::awaitable<boost::system::error_code>
@@ -529,8 +449,8 @@ net::awaitable<http_result> http_client::async_upload_file(
         http::request<http::file_body> file_req {req.method(), req.target(), req.version()};
 
         // 设置目标路径, Host, User-Agent, Connection 等.
-        setup_request_from_url(file_req, url_view);
-        copy_request_headers(file_req, req);
+        detail::setup_request_from_url(file_req, url_view);
+        detail::copy_request_headers(file_req, req);
 
         // 打开文件
         http::file_body::value_type file;
@@ -562,7 +482,7 @@ net::awaitable<http_result> http_client::async_upload_file(
 // -----------------------------------------------------------------------
 
 net::awaitable<http_result>
-http_client::async_upload_stream(const std::string& url, const http_request& req) noexcept
+http_client::async_upload_stream(std::string url, http_request req) noexcept
 {
     auto send_func =
         [&](const urls::url_view& url_view) -> net::awaitable<boost::system::error_code>
@@ -639,8 +559,8 @@ http_client::async_write_header(const urls::url_view& url, const http_request& r
     http::request<http::empty_body> stream_req {req.method(), req.target(), req.version()};
 
     // 使用辅助函数设置目标路径, Host, User-Agent, Connection 等.
-    setup_request_from_url(stream_req, url);
-    copy_request_headers(stream_req, req);
+    detail::setup_request_from_url(stream_req, url);
+    detail::copy_request_headers(stream_req, req);
 
     // 设置 chunked 传输编码
     stream_req.chunked(true);
@@ -754,9 +674,29 @@ void http_client::set_transfer_handler(transfer_handler&& handler) noexcept
     transfer_handler_ = std::move(handler);
 }
 
+http_client::transfer_handler& http_client::get_transfer_handler() noexcept
+{
+    return transfer_handler_;
+}
+
+void http_client::set_http_result_handler(http_client::http_result_handler&& handler) noexcept
+{
+    http_result_handler_ = std::move(handler);
+}
+
+http_client::http_result_handler& http_client::get_http_result_handler() noexcept
+{
+    return http_result_handler_;
+}
+
 void http_client::user_agent(const std::string& ua) noexcept
 {
     user_agent_ = ua;
+}
+
+void http_client::set_sni(const std::string& sni) noexcept
+{
+    sni_ = sni;
 }
 
 bool http_client::check_certificate() const noexcept
@@ -776,16 +716,6 @@ void http_client::check_certificate(bool check) noexcept
     {
         ssl_ctx_.set_verify_mode(ssl::verify_none);
     }
-}
-
-bool http_client::follow_redirect() const noexcept
-{
-    return follow_redirect_;
-}
-
-void http_client::follow_redirect(bool follow) noexcept
-{
-    follow_redirect_ = follow;
 }
 
 int http_client::max_redirects() const noexcept

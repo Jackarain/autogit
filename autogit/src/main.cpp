@@ -29,10 +29,6 @@ namespace po = boost::program_options;
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
-// 当定义了 BOOST_ASIO_SEPARATE_COMPILATION 时，
-// 需要在一个编译单元中包含如下文件以编译 Asio 源码。
-#include <boost/asio/impl/src.hpp>
-
 namespace net = boost::asio;
 
 #include <boost/filesystem.hpp>

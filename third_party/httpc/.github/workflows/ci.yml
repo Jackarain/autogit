@@ -1,0 +1,203 @@
+﻿name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BOOST_VERSION: 1.88.0
+
+jobs:
+  linux:
+    name: linux-${{ matrix.compiler }}${{ matrix.stdlib && format('-{0}', matrix.stdlib) || '' }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cc: gcc-14
+            cxx: g++-14
+            packages: g++-14
+          - compiler: gcc
+            cc: gcc-13
+            cxx: g++-13
+            packages: g++-13
+          - compiler: clang
+            cc: clang-18
+            cxx: clang++-18
+            packages: clang-18
+          - compiler: clang
+            cc: clang-18
+            cxx: clang++-18
+            packages: clang-18 libc++-18-dev libc++abi-18-dev
+            stdlib: libc++
+            flags: -DCMAKE_CXX_FLAGS=-stdlib=libc++ -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libssl-dev ${{ matrix.packages }}
+
+      - name: Install Boost
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/boost.tar.gz" \
+            "https://github.com/boostorg/boost/releases/download/boost-${BOOST_VERSION}/boost-${BOOST_VERSION}-cmake.tar.gz"
+          tar -xzf "$RUNNER_TEMP/boost.tar.gz" -C "$RUNNER_TEMP"
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+          HTTPC_BOOST_ROOT: ${{ runner.temp }}/boost-${{ env.BOOST_VERSION }}
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHTTPC_BUILD_EXAMPLES=ON \
+            -DHTTPC_BUILD_TESTS=ON \
+            ${{ matrix.flags }}
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  macos:
+    name: macos-${{ matrix.compiler }}
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: clang
+            cxx: clang++
+          - compiler: gcc
+            cxx: g++-14
+            packages: gcc@14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+        run: |
+          brew install cmake ninja openssl ${{ matrix.packages }}
+
+      - name: Install Boost
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/boost.tar.gz" \
+            "https://github.com/boostorg/boost/releases/download/boost-${BOOST_VERSION}/boost-${BOOST_VERSION}-cmake.tar.gz"
+          tar -xzf "$RUNNER_TEMP/boost.tar.gz" -C "$RUNNER_TEMP"
+
+      - name: Configure
+        env:
+          CXX: ${{ matrix.cxx }}
+          HTTPC_BOOST_ROOT: ${{ runner.temp }}/boost-${{ env.BOOST_VERSION }}
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHTTPC_BUILD_EXAMPLES=ON \
+            -DHTTPC_BUILD_TESTS=ON \
+            -DOPENSSL_ROOT_DIR="$(brew --prefix openssl)"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  windows:
+    name: windows-${{ matrix.compiler }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: msvc
+          - compiler: clang-cl
+          - compiler: mingw
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2 (MinGW)
+        if: matrix.compiler == 'mingw'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-boost
+
+      - name: Install Boost
+        if: matrix.compiler != 'mingw'
+        shell: pwsh
+        run: |
+          curl.exe -fsSL -o "$env:RUNNER_TEMP\boost.tar.gz" `
+            "https://github.com/boostorg/boost/releases/download/boost-$env:BOOST_VERSION/boost-$env:BOOST_VERSION-cmake.tar.gz"
+          tar -xzf "$env:RUNNER_TEMP\boost.tar.gz" -C "$env:RUNNER_TEMP"
+
+      - name: Configure (MSYS2 / MinGW)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHTTPC_BUILD_EXAMPLES=ON \
+            -DHTTPC_BUILD_TESTS=ON \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++
+
+      - name: Configure (MSVC)
+        if: matrix.compiler == 'msvc'
+        env:
+          HTTPC_BOOST_ROOT: ${{ runner.temp }}\boost-${{ env.BOOST_VERSION }}
+        run: |
+          cmake -S . -B build -A x64 `
+            -DHTTPC_BUILD_EXAMPLES=ON `
+            -DHTTPC_BUILD_TESTS=ON `
+            -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL"
+
+      - name: Configure (clang-cl)
+        if: matrix.compiler == 'clang-cl'
+        env:
+          HTTPC_BOOST_ROOT: ${{ runner.temp }}\boost-${{ env.BOOST_VERSION }}
+        run: |
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=clang-cl `
+            -DCMAKE_CXX_COMPILER=clang-cl `
+            -DHTTPC_BUILD_EXAMPLES=ON `
+            -DHTTPC_BUILD_TESTS=ON `
+            -DOPENSSL_ROOT_DIR="C:/Program Files/OpenSSL"
+
+      - name: Build (MSYS2 / MinGW)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: cmake --build build --config Release --parallel
+
+      - name: Build
+        if: matrix.compiler != 'mingw'
+        run: cmake --build build --config Release --parallel
+
+      - name: Test (MSYS2 / MinGW)
+        if: matrix.compiler == 'mingw'
+        shell: msys2 {0}
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Test
+        if: matrix.compiler != 'mingw'
+        run: ctest --test-dir build -C Release --output-on-failure

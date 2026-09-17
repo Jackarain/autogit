@@ -1133,7 +1133,7 @@ namespace lfs {
                 httpc::http_client client(ioc.get_executor());
                 client.connect_timeout(std::chrono::seconds(30));
                 client.check_certificate(false);
-                client.follow_redirect(false);
+                client.max_redirects(0);
 
                 client.set_transfer_handler(
                     [&](auto data, auto size) mutable
@@ -1256,7 +1256,7 @@ namespace lfs {
                     httpc::http_client client(ioc.get_executor());
                     client.connect_timeout(std::chrono::seconds(30));
                     client.check_certificate(false);
-                    client.follow_redirect(false);
+                    client.max_redirects(0);
 
                     // 构建上传请求
                     httpc::http_request upload_req;

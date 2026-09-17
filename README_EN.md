@@ -165,7 +165,7 @@ autogit is built on the following core technologies:
 - **Boost Libraries** — Asio (networking & async), Filesystem (file system), Program Options (argument parsing)
 - **watchman Module** — Cross-platform file system event monitoring abstraction layer
 - **gitpp** — Modern C++ RAII wrapper around libgit2 (located in `incubator/gitpp/`)
-- **httpc** — C++20 coroutine-based HTTP client library built on Boost.Beast and Boost.Asio (located in `incubator/httpc/`), with SSL support, connection reuse, and streaming request/response
+- **httpc** — C++20 coroutine-based HTTP client library built on Boost.Beast and Boost.Asio (located in `third_party/httpc/`), with SSL support, connection reuse, and streaming request/response
 
 ---
 
