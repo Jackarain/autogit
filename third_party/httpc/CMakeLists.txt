@@ -28,6 +28,7 @@ project(httpc
 option(HTTPC_BUILD_EXAMPLES      "Build httpc examples"                          OFF)
 option(HTTPC_BUILD_TESTS         "Build httpc tests"                             OFF)
 option(HTTPC_SEPARATE_COMPILATION "Compile Boost.Asio/Beast separately"          ON)
+option(HTTPC_INSTALL             "Generate httpc install rules"                  ON)
 set(HTTPC_BOOST_ROOT "" CACHE PATH
 	"Path to a Boost source tree (e.g. third_party/boost). When set, its per-library include dirs are used instead of find_package(Boost).")
 
@@ -181,44 +182,46 @@ if(HTTPC_BUILD_TESTS)
 	add_subdirectory(tests)
 endif()
 
-# ---------------------------------------------------------------------------
-# Install
-# ---------------------------------------------------------------------------
-include(GNUInstallDirs)
-include(CMakePackageConfigHelpers)
+if(HTTPC_INSTALL)
+	# ---------------------------------------------------------------------------
+	# Install
+	# ---------------------------------------------------------------------------
+	include(GNUInstallDirs)
+	include(CMakePackageConfigHelpers)
 
-install(TARGETS httpc EXPORT httpcTargets
-	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
-if(TARGET httpc_boost_url)
-	install(TARGETS httpc_boost_url EXPORT httpcTargets
+	install(TARGETS httpc EXPORT httpcTargets
 		ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 		LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 		RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 	)
+	if(TARGET httpc_boost_url)
+		install(TARGETS httpc_boost_url EXPORT httpcTargets
+			ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+			LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+			RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+		)
+	endif()
+
+	install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+	configure_package_config_file(
+		cmake/httpcConfig.cmake.in
+		"${CMAKE_CURRENT_BINARY_DIR}/httpcConfig.cmake"
+		INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/httpc
+	)
+	write_basic_package_version_file(
+		"${CMAKE_CURRENT_BINARY_DIR}/httpcConfigVersion.cmake"
+		VERSION ${PROJECT_VERSION}
+		COMPATIBILITY SameMajorVersion
+	)
+
+	install(EXPORT httpcTargets
+		NAMESPACE   httpc::
+		DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/httpc
+	)
+	install(FILES
+		"${CMAKE_CURRENT_BINARY_DIR}/httpcConfig.cmake"
+		"${CMAKE_CURRENT_BINARY_DIR}/httpcConfigVersion.cmake"
+		DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/httpc
+	)
 endif()
-
-install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-
-configure_package_config_file(
-	cmake/httpcConfig.cmake.in
-	"${CMAKE_CURRENT_BINARY_DIR}/httpcConfig.cmake"
-	INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/httpc
-)
-write_basic_package_version_file(
-	"${CMAKE_CURRENT_BINARY_DIR}/httpcConfigVersion.cmake"
-	VERSION ${PROJECT_VERSION}
-	COMPATIBILITY SameMajorVersion
-)
-
-install(EXPORT httpcTargets
-	NAMESPACE   httpc::
-	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/httpc
-)
-install(FILES
-	"${CMAKE_CURRENT_BINARY_DIR}/httpcConfig.cmake"
-	"${CMAKE_CURRENT_BINARY_DIR}/httpcConfigVersion.cmake"
-	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/httpc
-)

@@ -376,10 +376,10 @@ add_subdirectory(third_party/fmt)
 
 # httpc: 基于 Boost.Asio/Beast 的 C++20 HTTP 客户端库, 复用本项目内置的 Boost 源码树.
 # 作为内部依赖, 不生成安装规则.
-set(HTTPC_BOOST_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/third_party/boost)
-set(CMAKE_SKIP_INSTALL_RULES ON)
+set(HTTPC_BOOST_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/third_party/boost CACHE PATH
+	"Boost source tree used by the vendored httpc" FORCE)
+set(HTTPC_INSTALL OFF CACHE BOOL "Disable the install rules of the vendored httpc" FORCE)
 add_subdirectory(third_party/httpc EXCLUDE_FROM_ALL)
-set(CMAKE_SKIP_INSTALL_RULES OFF)
 set_target_properties(httpc PROPERTIES FOLDER "third_party/httpc")
 if (TARGET httpc_boost_url)
 	set_target_properties(httpc_boost_url PROPERTIES FOLDER "third_party/httpc")
